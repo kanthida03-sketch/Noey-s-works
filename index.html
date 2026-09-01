@@ -1,6 +1,5 @@
 <!DOCTYPE html>
-<html lang="th">
-<head>
+<html lang="th"><head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
 <title>ศูนย์รวมงานของเนย</title>
@@ -11,28 +10,15 @@
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://unpkg.com/lucide@0.383.0/dist/umd/lucide.min.js"></script>
 <style>body{-webkit-tap-highlight-color:transparent;} ::-webkit-scrollbar{display:none;}</style>
-</head>
-<body class="bg-stone-50">
-<div id="root"></div>
+</head><body class="bg-stone-50">
+<div id="root"><div style='padding:24px;color:#78716c;font-family:sans-serif'>กำลังโหลด… (ครั้งแรกอาจช้าสักครู่)</div></div>
 <script>
-// ---- localStorage-backed storage (แทน window.storage ของ Claude) ----
-window.storage = {
-  async get(k){ const v=localStorage.getItem("nwh_"+k); if(v===null) throw new Error("missing"); return {key:k, value:v}; },
-  async set(k,v){ localStorage.setItem("nwh_"+k, v); return {key:k, value:v}; },
-  async delete(k){ localStorage.removeItem("nwh_"+k); return {key:k, deleted:true}; },
-  async list(){ return {keys:Object.keys(localStorage).filter(x=>x.indexOf("nwh_")===0).map(x=>x.slice(4))}; },
-};
+window.addEventListener('error',function(e){var r=document.getElementById('root');var m=(e&&e.message)||String(e);r.innerHTML="<pre style='padding:16px;color:#b91c1c;white-space:pre-wrap;font-size:12px'>\u26a0 โหลดแอปไม่สำเร็จ\n\n"+m+"</pre>";});
+window.storage={async get(k){var v=localStorage.getItem('nwh_'+k);if(v===null)throw new Error('missing');return {key:k,value:v};},async set(k,v){localStorage.setItem('nwh_'+k,v);return {key:k,value:v};},async delete(k){localStorage.removeItem('nwh_'+k);return {key:k,deleted:true};},async list(){return {keys:Object.keys(localStorage).filter(function(x){return x.indexOf('nwh_')===0;}).map(function(x){return x.slice(4);})};}};
 </script>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect } = React;
-// ---- lucide-react shim (ใช้ข้อมูลไอคอนจาก lucide UMD) ----
-const _mkIcon = (node) => (props) => {
-  props = props || {};
-  const { size = 24, color = "currentColor", strokeWidth = 2, ...rest } = props;
-  const kids = (node || []).map((c, i) => React.createElement(c[0], Object.assign({ key: i }, c[1])));
-  return React.createElement("svg", Object.assign({ xmlns:"http://www.w3.org/2000/svg", width:size, height:size, viewBox:"0 0 24 24", fill:"none", stroke:color, strokeWidth:strokeWidth, strokeLinecap:"round", strokeLinejoin:"round" }, rest), kids);
-};
-const _ICONS = ["Plus","X","Trash2","Calendar","Home","Briefcase","Package","Tag","Gauge","AlertTriangle","CheckCircle2","Circle","User","ArrowRight","Sparkles","Bell","Hand","Hourglass","Calculator","CalendarDays","Star","Download","Pencil"];
+const _mkIcon = (node) => (props) => { props = props || {}; const size = props.size || 24; const rest = Object.assign({}, props); delete rest.size; delete rest.color; delete rest.strokeWidth; let kids = []; if (Array.isArray(node)) { kids = node.map((c,i) => Array.isArray(c) ? React.createElement(c[0], Object.assign({key:i}, c[1]||{})) : null).filter(Boolean); } return React.createElement("svg", Object.assign({xmlns:"http://www.w3.org/2000/svg",width:size,height:size,viewBox:"0 0 24 24",fill:"none",stroke:props.color||"currentColor",strokeWidth:props.strokeWidth||2,strokeLinecap:"round",strokeLinejoin:"round"}, rest), kids); };
 const _L = (window.lucide && (window.lucide.icons || window.lucide)) || {};
 const Plus = _mkIcon(_L["Plus"]);
 const X = _mkIcon(_L["X"]);
@@ -2047,6 +2033,4 @@ function Field({ label, children }) {
 
 
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
-</script>
-</body>
-</html>
+</script></body></html>
