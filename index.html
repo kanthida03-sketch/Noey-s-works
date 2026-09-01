@@ -1,0 +1,2052 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>ศูนย์รวมงานของเนย</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://unpkg.com/lucide@0.383.0/dist/umd/lucide.min.js"></script>
+<style>body{-webkit-tap-highlight-color:transparent;} ::-webkit-scrollbar{display:none;}</style>
+</head>
+<body class="bg-stone-50">
+<div id="root"></div>
+<script>
+// ---- localStorage-backed storage (แทน window.storage ของ Claude) ----
+window.storage = {
+  async get(k){ const v=localStorage.getItem("nwh_"+k); if(v===null) throw new Error("missing"); return {key:k, value:v}; },
+  async set(k,v){ localStorage.setItem("nwh_"+k, v); return {key:k, value:v}; },
+  async delete(k){ localStorage.removeItem("nwh_"+k); return {key:k, deleted:true}; },
+  async list(){ return {keys:Object.keys(localStorage).filter(x=>x.indexOf("nwh_")===0).map(x=>x.slice(4))}; },
+};
+</script>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect } = React;
+// ---- lucide-react shim (ใช้ข้อมูลไอคอนจาก lucide UMD) ----
+const _mkIcon = (node) => (props) => {
+  props = props || {};
+  const { size = 24, color = "currentColor", strokeWidth = 2, ...rest } = props;
+  const kids = (node || []).map((c, i) => React.createElement(c[0], Object.assign({ key: i }, c[1])));
+  return React.createElement("svg", Object.assign({ xmlns:"http://www.w3.org/2000/svg", width:size, height:size, viewBox:"0 0 24 24", fill:"none", stroke:color, strokeWidth:strokeWidth, strokeLinecap:"round", strokeLinejoin:"round" }, rest), kids);
+};
+const _ICONS = ["Plus","X","Trash2","Calendar","Home","Briefcase","Package","Tag","Gauge","AlertTriangle","CheckCircle2","Circle","User","ArrowRight","Sparkles","Bell","Hand","Hourglass","Calculator","CalendarDays","Star","Download","Pencil"];
+const _L = (window.lucide && (window.lucide.icons || window.lucide)) || {};
+const Plus = _mkIcon(_L["Plus"]);
+const X = _mkIcon(_L["X"]);
+const Trash2 = _mkIcon(_L["Trash2"]);
+const Calendar = _mkIcon(_L["Calendar"]);
+const Home = _mkIcon(_L["Home"]);
+const Briefcase = _mkIcon(_L["Briefcase"]);
+const Package = _mkIcon(_L["Package"]);
+const Tag = _mkIcon(_L["Tag"]);
+const Gauge = _mkIcon(_L["Gauge"]);
+const AlertTriangle = _mkIcon(_L["AlertTriangle"]);
+const CheckCircle2 = _mkIcon(_L["CheckCircle2"]);
+const Circle = _mkIcon(_L["Circle"]);
+const User = _mkIcon(_L["User"]);
+const ArrowRight = _mkIcon(_L["ArrowRight"]);
+const Sparkles = _mkIcon(_L["Sparkles"]);
+const Bell = _mkIcon(_L["Bell"]);
+const Hand = _mkIcon(_L["Hand"]);
+const Hourglass = _mkIcon(_L["Hourglass"]);
+const Calculator = _mkIcon(_L["Calculator"]);
+const CalendarDays = _mkIcon(_L["CalendarDays"]);
+const Star = _mkIcon(_L["Star"]);
+const Download = _mkIcon(_L["Download"]);
+const Pencil = _mkIcon(_L["Pencil"]);
+
+
+/* ============ config ============ */
+const JOBS = {
+  1: { name: "งานประจำ", short: "Ignite", accent: "indigo", icon: Briefcase },
+  2: { name: "ฟรีแลนซ์", short: "Freelance", accent: "amber", icon: Package },
+  3: { name: "Shopee", short: "สติ๊กเกอร์", accent: "teal", icon: Tag },
+};
+
+const STAGES = {
+  1: [
+    { key: "concept", label: "ไอเดีย / รีทัชภาพ" },
+    { key: "pitch", label: "เสนอลูกค้า (ผ่านเซล)" },
+    { key: "render3d", label: "ดีไซน์ขึ้น 3D" },
+    { key: "lic_concept", label: "ตรวจสิทธิ์ – คอนเซป" },
+    { key: "mockup", label: "ทำม็อกอัพ (ดีไซน์→โรงงาน)" },
+    { key: "lic_mockup", label: "ตรวจสิทธิ์ – ม็อกอัพ" },
+    { key: "production", label: "ผลิตจริง" },
+    { key: "lic_final", label: "ตรวจสิทธิ์ – สินค้าจริง" },
+    { key: "done", label: "เสร็จ" },
+  ],
+  2: [
+    { key: "brief", label: "รับบรีฟ / คุยงาน" },
+    { key: "quote", label: "เสนอราคา" },
+    { key: "design", label: "ออกแบบ" },
+    { key: "revise", label: "แก้ไข" },
+    { key: "deliver", label: "ส่งงาน / ปิดงาน" },
+  ],
+  3: [
+    { key: "making", label: "กำลังทำ" },
+    { key: "shipped", label: "ส่งแล้ว" },
+  ],
+};
+
+const WAIT_BY_JOB = {
+  1: ["ลูกค้า", "สิทธิ์", "ดีไซน์", "โรงงาน", "เซล"],
+  2: ["ลูกค้า", "อื่นๆ"],
+  3: ["ลูกค้า", "อื่นๆ"],
+};
+
+const CHASE_DAYS = 3; // รอเกินกี่วันถึงเตือนให้ตาม
+
+const stageLabel = (job, key) => (STAGES[job].find((s) => s.key === key) || {}).label || key;
+const isDone = (t) =>
+  (t.job === 1 && (t.status === "done" || t.status === "cancel")) ||
+  (t.job === 2 && (t.status === "done" || t.status === "cancel")) ||
+  (t.job === 3 && t.stage === "shipped");
+
+/* ===== Ignite (งานประจำ) — overview model: Type / Owner / Phase / Status / Priority ===== */
+const IG_TYPES = ["Bucket", "Cup", "Art toys", "Bag", "Household", "Open"];
+const IG_OWNERS = ["P'B", "Bow", "P'Benz"];
+const IG_PHASES = ["Research", "Image gen", "3D gen", "Prototype", "Production", "AW", "Licensing"];
+const IG_STATUS = {
+  notset: { label: "ยังไม่เริ่ม", cls: "bg-stone-100 text-stone-500" },
+  inprogress: { label: "กำลังทำ", cls: "bg-amber-100 text-amber-700" },
+  followup: { label: "รอติดตาม", cls: "bg-sky-100 text-sky-700" },
+  done: { label: "เสร็จ", cls: "bg-emerald-100 text-emerald-700" },
+  cancel: { label: "ยกเลิก", cls: "bg-stone-200 text-stone-400" },
+};
+const IG_PRIO = {
+  H: { label: "H", dot: "bg-red-500" },
+  M: { label: "M", dot: "bg-amber-400" },
+  L: { label: "L", dot: "bg-emerald-500" },
+};
+const IG_URGENCY = {
+  today: { stripe: "bg-red-500", text: "text-red-600" },
+  soon: { stripe: "bg-orange-500", text: "text-orange-600" },
+  week: { stripe: "bg-amber-400", text: "text-amber-600" },
+  later: { stripe: "bg-stone-300", text: "text-stone-500" },
+  none: { stripe: "bg-stone-200", text: "text-stone-400" },
+};
+// ระดับความด่วนตามกำหนดส่ง: วันนี้/เลย=แดง · ≤3วัน=ส้ม · ≤7วัน=เหลือง · เกิน7=ไม่นับ
+const igUrgency = (deadline) => {
+  const d = daysUntil(deadline);
+  if (d === null) return { key: "none", rank: 4, label: "ไม่มีกำหนด" };
+  if (d <= 0) return { key: "today", rank: 0, label: d < 0 ? "เลยกำหนด " + (-d) + " วัน" : "ส่งวันนี้" };
+  if (d <= 3) return { key: "soon", rank: 1, label: "อีก " + d + " วัน" };
+  if (d <= 7) return { key: "week", rank: 2, label: "อีก " + d + " วัน" };
+  return { key: "later", rank: 3, label: "อีก " + d + " วัน" };
+};
+
+// เวลา Shopee แบบกะด้วยขนาดล็อต (แผ่นแต่ละขนาดใช้เวลาไม่เท่ากัน เลยไม่นับแผ่น)
+const TIER_HR = { normal: 0.5, big: 1 }; // ธรรมดา ~30 นาที · ใหญ่ ~1 ชม.
+const FILE_PREP_HR = 1;                // เตรียมไฟล์ให้ลูกค้า (พรีออเดอร์บางเจ้า)
+const estJob3 = (p) => (TIER_HR[p.size] || 1) + (p.needFile ? FILE_PREP_HR : 0);
+
+const defaultWaitOn = (job, stage) => {
+  if (stage && stage.startsWith("lic_")) return "สิทธิ์";
+  if (stage === "pitch") return "ลูกค้า";
+  if (stage === "render3d" || stage === "mockup") return "ดีไซน์";
+  if (stage === "production") return "โรงงาน";
+  return WAIT_BY_JOB[job][0];
+};
+
+const A = {
+  indigo: { text: "text-indigo-600", bg: "bg-indigo-600", soft: "bg-indigo-50", border: "border-indigo-200", dot: "bg-indigo-500" },
+  amber: { text: "text-amber-600", bg: "bg-amber-500", soft: "bg-amber-50", border: "border-amber-200", dot: "bg-amber-500" },
+  teal: { text: "text-teal-600", bg: "bg-teal-600", soft: "bg-teal-50", border: "border-teal-200", dot: "bg-teal-500" },
+};
+
+/* ============ date helpers ============ */
+const today0 = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+const daysUntil = (iso) => iso ? Math.round((new Date(iso + "T00:00:00") - today0()) / 86400000) : null;
+const daysSince = (ts) => ts ? Math.floor((Date.now() - ts) / 86400000) : null;
+const addDays = (n) => { const d = today0(); d.setDate(d.getDate() + n); return isoOf(d); };
+const fmtThaiDate = (iso) => iso ? new Date(iso + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" }) : "";
+const THAI_DOW = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
+const THAI_DOW_FULL = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
+const dowShort = (iso) => iso ? THAI_DOW[new Date(iso + "T00:00:00").getDay()] : "";
+const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+// คืนวันทำงานถัด ๆ ไป count วัน โดยข้ามวันที่อยู่ใน blocked (Set ของ ISO)
+function workingDates(count, blocked) {
+  const out = []; const d = today0(); let guard = 0;
+  while (out.length < count && guard < 400) {
+    const iso = isoOf(d);
+    if (!blocked.has(iso)) out.push(iso);
+    d.setDate(d.getDate() + 1); guard++;
+  }
+  return out;
+}
+const deadlineTone = (days) => {
+  if (days === null) return null;
+  if (days < 0) return { c: "text-red-600", bg: "bg-red-50", b: "border-red-200", label: "เลย " + Math.abs(days) + " วัน" };
+  if (days === 0) return { c: "text-red-600", bg: "bg-red-50", b: "border-red-200", label: "วันนี้!" };
+  if (days <= 2) return { c: "text-orange-600", bg: "bg-orange-50", b: "border-orange-200", label: "อีก " + days + " วัน" };
+  if (days <= 5) return { c: "text-amber-600", bg: "bg-amber-50", b: "border-amber-200", label: "อีก " + days + " วัน" };
+  return { c: "text-emerald-600", bg: "bg-emerald-50", b: "border-emerald-200", label: "อีก " + days + " วัน" };
+};
+
+/* ============ storage ============ */
+const TKEY = "noey-tasks-v2";
+const SKEY = "noey-settings-v1";
+const BKEY = "noey-blocks-v1";
+const WKEY = "noey-wishes-v1";
+const CKEY = "noey-courses-v1";
+const PLKEY = "noey-plans-v1";
+const PLANKEY = "noey-planner-v1";
+const DEFAULT_SETTINGS = { weekdayHrs: 2.5, weekendHrs: 5 };
+// ช่วงเวลาทำงานจริง (ชั่วโมงแบบทศนิยม)
+const SIDE_WINDOWS = [[6, 8], [12, 13], [20, 21.5]]; // ฟรีแลนซ์/Shopee: เช้า·เที่ยง·เย็น
+const IGNITE_WINDOWS = [[10, 12], [13, 18]];          // งานบริษัท (เริ่ม 10 โมง)
+const SIDE_HOURS = SIDE_WINDOWS.reduce((s, [a, b]) => s + (b - a), 0); // 4.5 ชม./วันธรรมดา
+const WEEKEND_HRS = { homestay: 4, bangkok: 8, full: 14 };
+const WEEKEND_LABEL = {
+  homestay: "กลับบ้านดูโฮมสเตย์ (ทำได้แค่กลางคืน)",
+  bangkok: "อยู่ กทม. (กันเวลาให้แฟน 1 วัน)",
+  full: "เต็มที่ทั้งเสาร์–อาทิตย์",
+};
+async function loadKey(key, fallback) {
+  try { const r = await window.storage.get(key); return r && r.value ? JSON.parse(r.value) : fallback; }
+  catch { return fallback; }
+}
+async function saveKey(key, val) { try { await window.storage.set(key, JSON.stringify(val)); } catch (e) { console.error(e); } }
+
+/* ============ main ============ */
+function App() {
+  const [tasks, setTasks] = useState([]);
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [plans, setPlans] = useState([]); // แผน/กิจกรรม (รวมวันไม่ว่าง + สิ่งที่อยากทำ)
+  const [courses, setCourses] = useState([]); // คอร์สเรียน
+  const [planner, setPlanner] = useState({}); // ตารางเวลารายวัน { iso: { hour: text } }
+  const [loaded, setLoaded] = useState(false);
+  const [view, setView] = useState("overview");
+  const [editing, setEditing] = useState(null);
+  const [showDone, setShowDone] = useState(false);
+
+  useEffect(() => { (async () => {
+    setTasks(await loadKey(TKEY, []));
+    setSettings(await loadKey(SKEY, DEFAULT_SETTINGS));
+    const p = await loadKey(PLKEY, null);
+    if (p) setPlans(p);
+    else { const legacy = await loadKey(BKEY, []); setPlans(legacy.map((b) => ({ id: b.id || ("p_" + Math.random().toString(36).slice(2)), date: b.date, name: b.label || "ไม่ว่าง", allDay: true, hours: 0, minutes: 0 }))); }
+    setCourses(await loadKey(CKEY, []));
+    setPlanner(await loadKey(PLANKEY, {}));
+    setLoaded(true);
+  })(); }, []);
+  useEffect(() => { if (loaded) saveKey(TKEY, tasks); }, [tasks, loaded]);
+  useEffect(() => { if (loaded) saveKey(SKEY, settings); }, [settings, loaded]);
+  useEffect(() => { if (loaded) saveKey(PLKEY, plans); }, [plans, loaded]);
+  useEffect(() => { if (loaded) saveKey(CKEY, courses); }, [courses, loaded]);
+  useEffect(() => { if (loaded) saveKey(PLANKEY, planner); }, [planner, loaded]);
+
+  const upsert = (t) => {
+    setTasks((prev) => prev.some((x) => x.id === t.id)
+      ? prev.map((x) => (x.id === t.id ? t : x)) : [...prev, t]);
+    setEditing(null);
+  };
+  const patch = (t, changes) => {
+    const next = { ...t, ...changes, updatedAt: Date.now() };
+    setTasks((prev) => prev.map((x) => (x.id === t.id ? next : x)));
+  };
+  const remove = (id) => setTasks((prev) => prev.filter((x) => x.id !== id));
+
+  // quick status handlers
+  const setStage = (t, stage) => patch(t, { stage });
+  const setMine = (t) => patch(t, { ball: "me" });
+  const setWaiting = (t, who) => patch(t, { ball: "wait", waitOn: who || defaultWaitOn(t.job, t.stage), waitSince: Date.now() });
+  const followedUp = (t) => patch(t, { waitSince: Date.now(), lastFollowUp: Date.now() });
+  const setStatus = (t, status) => patch(t, { status });
+  const setPlanEntry = (iso, h, text) => setPlanner((prev) => ({ ...prev, [iso]: { ...(prev[iso] || {}), [h]: text } }));
+  const setPaid = (t, paid) => patch(t, { paid });
+  const onContinue = (src) => setEditing({ new: true, job: src.job, linkedFrom: src.id, linkedFromTitle: src.title, _closeSource: src.id,
+    title: src.title, type: src.type, owner: src.owner, phase: src.phase, priority: src.priority, client: src.client, price: src.price, step: src.step, channel: src.channel, paid: src.paid, rmode: src.rmode, rcat: src.rcat, ropt: src.ropt, rrush: src.rrush, rmanual: src.rmanual });
+  const saveTask = (t) => {
+    const src = editing && editing._closeSource;
+    upsert(t);
+    if (src) { const s = tasks.find((x) => x.id === src); if (s) patch(s, { status: "done" }); }
+  };
+
+  const active = tasks.filter((t) => !isDone(t));
+  const blocks = plans.filter((p) => p.allDay || p.period === "allday").map((p) => ({ id: p.id, date: p.date, label: p.name }));
+  const blockedSet = new Set(blocks.map((b) => b.date));
+  const nav = [
+    { id: "overview", label: "วันนี้", icon: Home },
+    { id: "1", label: "Ignite", icon: Briefcase },
+    { id: "2", label: "ฟรีแลนซ์", icon: Package },
+    { id: "3", label: "Shopee", icon: Tag },
+    { id: "personal", label: "ส่วนตัว", icon: CalendarDays },
+  ];
+  const cardProps = { setStage, setMine, setWaiting, followedUp, onEdit: setEditing };
+
+  if (!loaded)
+    return <div className="min-h-screen bg-stone-50 flex items-center justify-center text-stone-400">กำลังโหลด…</div>;
+
+  return (
+    <div className="min-h-screen bg-stone-50 text-stone-800 font-sans pb-24">
+      <header className="px-5 pt-6 pb-4 max-w-2xl mx-auto">
+        <p className="text-[11px] tracking-[0.2em] uppercase text-stone-400 font-medium">Noey · Work Hub</p>
+        <h1 className="text-2xl font-bold text-stone-900 mt-0.5">ศูนย์รวมงานของเนย</h1>
+      </header>
+
+      <main className="px-4 max-w-2xl mx-auto">
+        {view === "overview" && <Overview active={active} setView={setView} cardProps={cardProps} blocks={blocks} settings={settings} setSettings={setSettings} planner={planner} setPlanner={setPlanner} plans={plans} courses={courses} />}
+        {view === "1" && <IgniteView tasks={tasks} setStatus={setStatus} onEdit={setEditing}
+          onAdd={() => setEditing({ new: true, job: 1 })} onContinue={onContinue} />}
+        {view === "2" && <FreelanceView tasks={tasks} setStatus={setStatus} setPaid={setPaid} onEdit={setEditing}
+          onAdd={() => setEditing({ new: true, job: 2 })} onContinue={onContinue} />}
+        {view === "3" && (
+          <JobView job={3} tasks={tasks} cardProps={cardProps} blockedSet={blockedSet}
+            showDone={showDone} setShowDone={setShowDone}
+            onAdd={() => setEditing({ new: true, job: 3 })} />
+        )}
+        {view === "personal" && <PersonalPage plans={plans} setPlans={setPlans} blockedSet={blockedSet} courses={courses} setCourses={setCourses} />}
+      </main>
+
+      <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-stone-200 z-10">
+        <div className="max-w-2xl mx-auto grid grid-cols-5">
+          {nav.map((n) => {
+            const on = view === n.id; const Icon = n.icon;
+            return (
+              <button key={n.id} onClick={() => setView(n.id)}
+                className={"py-2.5 flex flex-col items-center gap-0.5 text-[10px] transition " + (on ? "text-stone-900" : "text-stone-400")}>
+                <Icon size={20} strokeWidth={on ? 2.4 : 1.8} />{n.label}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {editing && <TaskModal seed={editing} onClose={() => setEditing(null)} onSave={saveTask} onRemove={remove} />}
+    </div>
+  );
+}
+
+/* ============ overview ============ */
+// จัดงานลงช่องเวลา 30 นาที ตามลำดับ เฉพาะช่องที่ canUse(i)
+function packSlots(orderedTasks, SLOTS, canUse) {
+  const occ = {}; let i = 0; const overflow = [];
+  for (const ot of orderedTasks) {
+    const need = Math.max(1, Math.round((ot.minutes || 30) / 30));
+    let placed = false;
+    for (let s = i; s + need <= SLOTS; s++) {
+      let ok = true;
+      for (let k = 0; k < need; k++) { if (!canUse(s + k) || occ[s + k]) { ok = false; break; } }
+      if (ok) { for (let k = 0; k < need; k++) occ[s + k] = { id: ot.id, start: k === 0, span: need }; i = s + need; placed = true; break; }
+    }
+    if (!placed) overflow.push(ot.id);
+  }
+  return { occ, overflow };
+}
+
+function Overview({ active, setView, cardProps, blocks, settings, setSettings, planner, setPlanner, plans, courses }) {
+  const [tune, setTune] = useState(false);
+  const [editItem, setEditItem] = useState(null); // { id, name } กำลังแก้เวลา
+  const blockedSet = new Set((blocks || []).map((b) => b.date));
+  const wkd = settings.weekdayHrs ?? 2.5;
+  const wke = settings.weekendHrs ?? 5;
+  const now = today0();
+  const todayIso = isoOf(now);
+  const todayBlock = (blocks || []).find((b) => b.date === todayIso);
+
+  // งานค้างทั้งหมด (Shopee+ฟรีแลนซ์) เอาเวลาต่องานมารวม = demand (คงที่ทุกช่วง)
+  const day = planner[todayIso] || {};
+  const durMap = day.dur || {};
+  const defaultDur = (t) => t.job === 3 ? Math.max(30, Math.round((Number(t.estHours) || 0.5) * 60)) : 60;
+  const sideTasks = active.filter((t) => t.job === 2 || t.job === 3);
+  const sideHours = Math.round(sideTasks.reduce((s, t) => s + (durMap[t.id] || defaultDur(t)), 0) / 60 * 10) / 10;
+
+  const actDeduct = (iso) => (plans || []).filter((p) => p.date === iso && !p.done && !(p.allDay || p.period === "allday")).reduce((s, p) => { const min = (Number(p.hours) || 0) * 60 + (Number(p.minutes) || 0); return s + (min >= 180 ? min / 60 : 0); }, 0);
+
+  // ---- capacity for a horizon ----
+  const capFor = (horizon) => {
+    let capHours = 0; const blk = [];
+    const d = today0();
+    for (let i = 0; i < horizon; i++) {
+      const iso = isoOf(d), dow = d.getDay();
+      if (blockedSet.has(iso)) { const b = blocks.find((x) => x.date === iso); if (b) blk.push(b); }
+      else capHours += Math.max(0, ((dow === 0 || dow === 6) ? wke : SIDE_HOURS) - actDeduct(iso));
+      d.setDate(d.getDate() + 1);
+    }
+    capHours = Math.round(capHours * 10) / 10;
+    const demand = sideHours;
+    const ratio = capHours > 0 ? demand / capHours : (demand > 0 ? 9 : 0);
+    let verdict, vColor, vBar, vText;
+    if (ratio <= 0.7) { verdict = "รับงานเพิ่มได้"; vColor = "text-emerald-600"; vBar = "bg-emerald-500"; vText = "งานค้างยังไม่ล้นเวลาช่วงนี้"; }
+    else if (ratio <= 1) { verdict = "แน่นแล้ว"; vColor = "text-amber-600"; vBar = "bg-amber-500"; vText = "งานค้างเกือบเต็มเวลาช่วงนี้"; }
+    else { verdict = "เกินแล้ว"; vColor = "text-red-600"; vBar = "bg-red-500"; vText = "งานค้างล้นเวลาช่วงนี้ — เลื่อนบางงาน/อย่ารับเพิ่ม"; }
+    return { horizon, capHours, demand, ratio, pct: Math.min(100, Math.round(ratio * 100)), verdict, vColor, vBar, vText, blk };
+  };
+  const HZ = [{ v: 1, l: "วันนี้" }, { v: 3, l: "3 วัน" }, { v: 7, l: "7 วัน" }];
+
+  // ---- today's tasks across all jobs, by urgency ----
+  const JOBDOT = { 1: "bg-indigo-500", 2: "bg-amber-500", 3: "bg-teal-500" };
+  const JOBNAME = { 1: "Ignite", 2: "ฟรีแลนซ์", 3: "Shopee" };
+  const rank = (t) => { const du = daysUntil(t.deadline); return du === null ? 99999 : du; };
+  const todayJobs = [...active].sort((a, b) => rank(a) - rank(b));
+  const subLabel = (t) => t.job === 1 ? (t.phase || "") : t.job === 2 ? (t.step || "") : "";
+
+  // ---- daily planner (30-min, zone-aware, items = งาน+กิจกรรม+คอร์ส) ----
+  const notes = day.notes || {};
+  const startAt = day.startAt || {};
+  const SLOTS = 38; // 05:00 .. 23:30
+  const slotHour = (i) => 5 + Math.floor(i / 2);
+  const slotTime = (i) => slotHour(i) + (i % 2) * 0.5;
+  const slotLabel = (i) => String(slotHour(i)).padStart(2, "0") + (i % 2 ? ":30" : ":00");
+  const inWin = (t, wins) => wins.some(([a, b]) => t >= a && t < b);
+  const slotZone = (i) => { const t = slotTime(i); if (inWin(t, SIDE_WINDOWS)) return "side"; if (inWin(t, IGNITE_WINDOWS)) return "ignite"; const h = slotHour(i); if (h >= 9 && h < 18 && !(h >= 12 && h < 13)) return "company"; return "free"; };
+  const isCompanyVisual = (i) => { const z = slotZone(i); return z === "company" || z === "ignite"; };
+  const timeToSlot = (hhmm) => { if (!hhmm) return null; const q = hhmm.split(":"); const h = Number(q[0]), m = Number(q[1]); if (isNaN(h) || h < 5 || h >= 24) return null; return (h - 5) * 2 + (m >= 30 ? 1 : 0); };
+
+  // สร้างรายการทั้งหมดของวันนี้ (งานบริษัท·ฟรีแลนซ์·ร้าน·กิจกรรม·คอร์ส)
+  const items = [];
+  active.filter((t) => t.job === 1 && t.status === "inprogress").forEach((t) => items.push({ id: t.id, name: t.title + (t.phase ? " · " + t.phase : ""), group: "ignite", color: 1, dur: durMap[t.id] || 60 }));
+  active.filter((t) => t.job === 2 && t.status === "inprogress").forEach((t) => items.push({ id: t.id, name: t.title + (t.step ? " · " + t.step : ""), group: "side", color: 2, dur: durMap[t.id] || 60 }));
+  active.filter((t) => t.job === 3).forEach((t) => items.push({ id: t.id, name: t.title, group: "side", color: 3, dur: durMap[t.id] || Math.max(30, Math.round((Number(t.estHours) || 0.5) * 60)) }));
+  (plans || []).filter((p) => p.date === todayIso && !p.done && !(p.allDay || p.period === "allday")).forEach((p) => items.push({ id: p.id, name: p.name, group: "side", color: "act", dur: durMap[p.id] || ((Number(p.hours) || 0) * 60 + (Number(p.minutes) || 0)) || 30 }));
+  (courses || []).forEach((c) => { const sc = courseSchedule(c, blockedSet); const k = sc.indexOf(todayIso); if (k >= 0 && !(c.done || []).includes(k)) items.push({ id: "course_" + c.id, name: "คอร์ส: " + c.name, group: "side", color: "course", dur: durMap["course_" + c.id] || (Number(c.minutes) || 30) }); });
+
+  const itemIds = items.map((x) => x.id);
+  const order = (day.order || []).filter((id) => itemIds.includes(id));
+  items.forEach((x) => { if (!order.includes(x.id)) order.push(x.id); });
+  const byId = (id) => items.find((x) => x.id === id);
+
+  // แพ็คลงช่อง: งานที่ระบุเวลา (ล็อก) ก่อน แล้วค่อยจัดอัตโนมัติในช่วงว่าง
+  const occ = {}; const overflow = [];
+  const place = (it, s) => { const need = Math.max(1, Math.round(it.dur / 30)); for (let k = 0; k < need; k++) { if (s + k >= SLOTS || occ[s + k]) return false; } for (let k = 0; k < need; k++) occ[s + k] = { id: it.id, start: k === 0, span: need, color: it.color }; return true; };
+  order.map(byId).filter(Boolean).forEach((it) => { const s = timeToSlot(startAt[it.id]); if (s != null) { if (!place(it, s)) overflow.push(it.id); } });
+  const autoPack = (grp) => { let i = 0; order.map(byId).filter((it) => it && it.group === grp && timeToSlot(startAt[it.id]) == null).forEach((it) => { const need = Math.max(1, Math.round(it.dur / 30)); let placed = false; for (let s = i; s + need <= SLOTS; s++) { let ok = true; for (let k = 0; k < need; k++) { if (slotZone(s + k) !== grp || occ[s + k]) { ok = false; break; } } if (ok) { for (let k = 0; k < need; k++) occ[s + k] = { id: it.id, start: k === 0, span: need, color: it.color }; i = s + need; placed = true; break; } } if (!placed) overflow.push(it.id); }); };
+  autoPack("side"); autoPack("ignite");
+
+  const updateDay = (patch) => setPlanner((prev) => ({ ...prev, [todayIso]: { ...(prev[todayIso] || {}), ...patch } }));
+  const moveInGroup = (id, dir) => { const it = byId(id); if (!it) return; const group = order.map(byId).filter((x) => x && x.group === it.group && timeToSlot(startAt[x.id]) == null).map((x) => x.id); const gi = group.indexOf(id), gj = gi + dir; if (gj < 0 || gj >= group.length) return; const ng = group.slice(); const tmp = ng[gi]; ng[gi] = ng[gj]; ng[gj] = tmp; let k = 0; const newOrder = order.map((oid) => group.includes(oid) ? ng[k++] : oid); updateDay({ order: newOrder }); };
+  const setDur = (id, m) => updateDay({ dur: { ...durMap, [id]: m } });
+  const setStartAt = (id, v) => updateDay({ startAt: { ...startAt, [id]: v } });
+  const setNote = (i, v) => updateDay({ notes: { ...notes, [i]: v } });
+  const ITEMBG = { 1: "bg-indigo-100", 2: "bg-amber-100", 3: "bg-teal-100", act: "bg-rose-100", course: "bg-violet-100" };
+  const ITEMDOT = { 1: "bg-indigo-500", 2: "bg-amber-500", 3: "bg-teal-500", act: "bg-rose-500", course: "bg-violet-500" };
+  const DURS = [{ m: 30, l: "30น" }, { m: 60, l: "1ชม" }, { m: 90, l: "1.5" }, { m: 120, l: "2ชม" }];
+  const editing = editItem ? byId(editItem) : null;
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl bg-stone-900 text-white p-4">
+        <p className="text-[11px] tracking-[0.2em] uppercase text-stone-400">วันนี้</p>
+        <p className="text-xl font-bold mt-0.5">{THAI_DOW_FULL[now.getDay()]} {now.toLocaleDateString("th-TH", { day: "numeric", month: "long" })}</p>
+        {todayBlock && <p className="text-sm text-amber-300 mt-1">วันนี้ไม่ว่าง: {todayBlock.label}</p>}
+      </div>
+
+      {/* swipeable capacity */}
+      <div>
+        <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollSnapType: "x mandatory", scrollbarWidth: "none" }}>
+          {HZ.map((h) => {
+            const c = capFor(h.v);
+            return (
+              <div key={h.v} className="shrink-0 rounded-2xl border border-stone-200 bg-white p-4" style={{ minWidth: "86%", scrollSnapAlign: "center" }}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-stone-500">{h.l}</span>
+                  <span className="text-sm text-stone-500">{c.demand} / {c.capHours} ชม.</span>
+                </div>
+                <div className={"text-xl font-bold " + c.vColor}>{c.verdict}</div>
+                <div className="h-2.5 rounded-full bg-stone-100 overflow-hidden my-2">
+                  <div className={"h-full rounded-full " + c.vBar} style={{ width: c.pct + "%" }} />
+                </div>
+                <p className="text-xs text-stone-500">{c.vText}</p>
+                {c.blk.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2">{c.blk.map((b) => <span key={b.id} className="text-[11px] text-amber-700 bg-amber-50 rounded-full px-2 py-0.5">ไม่ว่าง {fmtThaiDate(b.date)}</span>)}</div>}
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-center text-[11px] text-stone-400 mt-1">← ปัดดู วันนี้ · 3 วัน · 7 วัน →</p>
+        <button onClick={() => setTune(!tune)} className="text-xs text-stone-500 mt-1 mx-auto block">{tune ? "ซ่อน" : "ปรับเวลาทำงาน"}</button>
+        {tune && (
+          <div className="mt-2 space-y-2 rounded-xl border border-stone-200 p-3">
+            <p className="text-xs text-stone-500">เวลาว่างวันธรรมดา (ฟรีแลนซ์/ร้าน): 06:00–08:00 · พักเที่ยง · 20:00–21:30 = <span className="font-semibold text-stone-700">{SIDE_HOURS} ชม.</span></p>
+            <label className="flex items-center justify-between text-sm text-stone-600">เสาร์/อาทิตย์ (ต่อวัน)
+              <span className="flex items-center gap-2"><input type="number" step="0.5" min="0" value={wke} onChange={(e) => setSettings({ ...settings, weekendHrs: Number(e.target.value) })} className="w-16 text-right rounded-lg border border-stone-300 px-2 py-1 text-sm" /> ชม.</span></label>
+          </div>
+        )}
+      </div>
+
+      {/* timeline 30-min */}
+      <div>
+        <div className="flex items-baseline justify-between mb-1 px-1">
+          <h2 className="font-bold text-stone-900">ตารางวันนี้</h2>
+          {overflow.length > 0 && <span className="text-xs text-red-500">ไม่พอเวลา {overflow.length} งาน</span>}
+        </div>
+        <p className="text-xs text-stone-400 mb-2 px-1">แตะ ✏️ ตั้งเวลา/ระยะเวลา · งานที่ไม่ล็อกเวลาเลื่อน ▲▼ ได้ · ช่องว่างพิมพ์เองได้</p>
+        <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden divide-y divide-stone-100">
+          {Array.from({ length: SLOTS }).map((_, i) => {
+            const zone = slotZone(i);
+            const comp = isCompanyVisual(i);
+            const o = occ[i];
+            const it = o && byId(o.id);
+            const fixed = o && timeToSlot(startAt[o.id]) != null;
+            const bg = o ? (ITEMBG[o.color] || "") : (comp ? "bg-indigo-50" : (zone === "side" ? "bg-amber-50/50" : ""));
+            return (
+              <div key={i} className={"flex items-stretch " + bg}>
+                <div className="w-14 shrink-0 px-2 py-2 text-[11px] text-stone-400 border-r border-stone-100 flex items-center">{slotLabel(i)}</div>
+                {o
+                  ? (o.start
+                      ? <div className="flex-1 px-3 py-2 min-w-0 flex items-center gap-2">
+                          <span className={"w-2 h-2 rounded-full shrink-0 " + ITEMDOT[o.color]} />
+                          <span className="text-sm font-medium text-stone-800 truncate flex-1">{it ? it.name : ""}</span>
+                          <span className="text-[11px] text-stone-400 shrink-0">{o.span * 30}น</span>
+                          {fixed
+                            ? <span className="text-[10px] text-stone-400 shrink-0">🔒</span>
+                            : <div className="flex flex-col shrink-0 -my-1">
+                                <button onClick={() => moveInGroup(o.id, -1)} className="text-stone-400 text-[10px] leading-none">▲</button>
+                                <button onClick={() => moveInGroup(o.id, 1)} className="text-stone-400 text-[10px] leading-none">▼</button>
+                              </div>}
+                          <button onClick={() => setEditItem(o.id)} className="text-stone-400 shrink-0"><Pencil size={14} /></button>
+                        </div>
+                      : <div className="flex-1 px-3 py-2 text-xs flex items-center"><span className="text-stone-300">↳</span></div>)
+                  : comp
+                    ? <div className="flex-1 px-3 py-2 text-xs text-indigo-500 flex items-center gap-1.5">{slotHour(i) === 9 && i % 2 === 0 ? <><Briefcase size={12} /> งานบริษัท (เข้างาน)</> : ""}</div>
+                    : <input value={notes[i] || ""} onChange={(e) => setNote(i, e.target.value)} placeholder={zone === "side" ? "ทำฟรีแลนซ์/ร้าน…" : "…"} className="flex-1 px-3 py-2 text-sm bg-transparent focus:outline-none focus:bg-stone-50 placeholder-stone-300" />}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* edit item popup */}
+      {editing && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setEditItem(null)} />
+          <div className="relative bg-white w-full max-w-sm rounded-3xl p-5 shadow-xl space-y-3">
+            <p className="font-bold text-stone-900 truncate">{editing.name}</p>
+            <div>
+              <p className="text-xs text-stone-500 mb-1.5">ใช้เวลาทำ</p>
+              <div className="flex gap-2">
+                {DURS.map((d) => <button key={d.m} onClick={() => setDur(editing.id, d.m)} className={"flex-1 rounded-lg border py-2 text-sm " + ((durMap[editing.id] || editing.dur) === d.m ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>{d.l}</button>)}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-stone-500 mb-1.5">เวลาเริ่ม (ไม่ระบุก็ได้ · ระบุแล้วจะล็อกเวลานั้น)</p>
+              <div className="flex items-center gap-2">
+                <input type="time" value={startAt[editing.id] || ""} onChange={(e) => setStartAt(editing.id, e.target.value)}
+                  className="rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-400" />
+                {startAt[editing.id] && <button onClick={() => setStartAt(editing.id, "")} className="text-sm text-stone-400">ล้าง (จัดอัตโนมัติ)</button>}
+              </div>
+            </div>
+            <button onClick={() => setEditItem(null)} className="w-full rounded-xl bg-stone-900 text-white py-2.5 text-sm font-medium">เสร็จ</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ============ job view ============ */
+/* ============ Ignite view (overview list for boss) ============ */
+const IG_STLABEL = { notset: "ยังไม่เริ่ม", inprogress: "กำลังทำ", followup: "รอติดตาม" };
+function exportIgniteSummary(tasks) {
+  const active = tasks.filter((t) => t.job === 1 && t.status !== "done" && t.status !== "cancel");
+  const rk = (t) => { const du = daysUntil(t.deadline); return du === null ? 99999 : du; };
+  active.sort((a, b) => rk(a) - rk(b));
+  const header = ["ลำดับ", "ชื่องาน", "Phase", "Type", "Owner", "Status", "Priority", "กำหนดส่ง", "เหลือ (วัน)", "วันที่ได้รับ", "โน้ต"];
+  const rows = active.map((t, i) => {
+    const du = daysUntil(t.deadline);
+    return {
+      "ลำดับ": i + 1, "ชื่องาน": t.title || "", "Phase": t.phase || "", "Type": t.type || "", "Owner": t.owner || "",
+      "Status": IG_STLABEL[t.status || "notset"], "Priority": t.priority || "",
+      "กำหนดส่ง": t.deadline ? fmtThaiDate(t.deadline) : "",
+      "เหลือ (วัน)": (t.deadline && du !== null) ? du : "",
+      "วันที่ได้รับ": t.assignedDate ? fmtThaiDate(t.assignedDate) : "", "โน้ต": t.notes || "",
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows, { header });
+  ws["!cols"] = [{ wch: 6 }, { wch: 26 }, { wch: 12 }, { wch: 10 }, { wch: 8 }, { wch: 11 }, { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 30 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "สรุปงาน");
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  XLSX.writeFile(wb, `สรุปงาน-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.xlsx`);
+}
+
+function exportIgniteDone(tasks) {
+  const closed = tasks.filter((t) => t.job === 1 && (t.status === "done" || t.status === "cancel"));
+  closed.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const header = ["โปรเจค", "Phase", "Type", "Owner", "Priority", "สถานะ", "กำหนดส่ง", "วันที่จบ"];
+  const rows = closed.map((t) => ({
+    "โปรเจค": t.title || "", "Phase": t.phase || "", "Type": t.type || "", "Owner": t.owner || "",
+    "Priority": t.priority || "", "สถานะ": t.status === "cancel" ? "ยกเลิก" : "เสร็จ",
+    "กำหนดส่ง": t.deadline ? fmtThaiDate(t.deadline) : "",
+    "วันที่จบ": t.updatedAt ? new Date(t.updatedAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" }) : "",
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows, { header });
+  ws["!cols"] = header.map((h) => ({ wch: h === "โปรเจค" ? 26 : 12 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "งานที่จบ");
+  const d = new Date(); const pad = (n) => String(n).padStart(2, "0");
+  XLSX.writeFile(wb, `งานบริษัทที่จบ-${d.getFullYear()}${pad(d.getMonth() + 1)}.xlsx`);
+}
+
+/* งานที่จบ — รวมชื่อเดียวกันเป็นโปรเจคเดียว กางดูขั้นย่อยได้ + นับเดือน/ปี */
+function DoneList({ all, renderCard, exportFn }) {
+  const [open, setOpen] = useState({});
+  const nowD = new Date();
+  const [mode, setMode] = useState("M"); // Y | M | All
+  const [cy, setCy] = useState(nowD.getFullYear());
+  const [cm, setCm] = useState(nowD.getMonth());
+  const THMON = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+  const closed = all.filter((t) => t.status === "done" || t.status === "cancel");
+  const activeTitles = new Set(all.filter((t) => t.status !== "done" && t.status !== "cancel").map((t) => t.title));
+  const groups = {};
+  closed.forEach((t) => { (groups[t.title] = groups[t.title] || []).push(t); });
+  const finishTime = (title) => Math.max(0, ...groups[title].map((t) => t.updatedAt || 0));
+  const finishedTitles = Object.keys(groups).filter((title) => !activeTitles.has(title));
+
+  const inPeriod = (ts) => { if (mode === "All") return true; const d = new Date(ts); if (mode === "Y") return d.getFullYear() === cy; return d.getFullYear() === cy && d.getMonth() === cm; };
+  const shift = (dir) => { if (mode === "Y") setCy((y) => y + dir); else if (mode === "M") { let m = cm + dir, y = cy; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } setCm(m); setCy(y); } };
+  const be = cy + 543;
+  const label = mode === "All" ? "ทั้งหมด" : mode === "Y" ? ("ปี " + be) : (THMON[cm] + " " + be);
+  const inTitles = finishedTitles.filter((t) => inPeriod(finishTime(t))).sort((a, b) => finishTime(b) - finishTime(a));
+
+  if (closed.length === 0) return <EmptyState title="ยังไม่มีงานที่จบ" sub="งานที่กด ‘จบโปรเจค’ จะมารวมที่นี่" />;
+
+  const pill = (active) => "rounded-full px-3.5 py-1.5 text-sm font-bold " + (active ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-500");
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <button onClick={() => setMode("Y")} className={pill(mode === "Y")}>Y</button>
+        <button onClick={() => setMode("M")} className={pill(mode === "M")}>M</button>
+        <div className="flex-1 flex items-center justify-center gap-2">
+          {mode !== "All" && <button onClick={() => shift(-1)} className="text-stone-400 text-xl px-1 leading-none">‹</button>}
+          <span className="font-bold text-stone-900 text-sm">{label}</span>
+          {mode !== "All" && <button onClick={() => shift(1)} className="text-stone-400 text-xl px-1 leading-none">›</button>}
+        </div>
+        <button onClick={() => setMode("All")} className={pill(mode === "All")}>All</button>
+      </div>
+
+      <div className="rounded-2xl bg-stone-900 text-white p-4 text-center">
+        <div className="text-3xl font-bold leading-none">{inTitles.length}</div>
+        <div className="text-xs text-stone-300 mt-1.5">โปรเจคจบ · {label}</div>
+      </div>
+
+      {exportFn && (
+        <button onClick={exportFn} className="w-full rounded-xl border border-stone-300 py-2 text-sm font-medium text-stone-700 flex items-center justify-center gap-1.5">
+          <Download size={16} /> โหลด Excel งานที่จบ
+        </button>
+      )}
+
+      {inTitles.length === 0
+        ? <div className="rounded-2xl border border-dashed border-stone-200 p-6 text-center text-sm text-stone-400">ไม่มีโปรเจคจบใน{label}</div>
+        : inTitles.map((title) => {
+            const items = groups[title].slice().sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+            const isOpen = !!open[title];
+            return (
+              <div key={title} className="rounded-2xl overflow-hidden border border-stone-200">
+                <button onClick={() => setOpen((o) => ({ ...o, [title]: !o[title] }))} className="w-full bg-stone-800 text-white p-3 flex items-center justify-between text-left">
+                  <span className="font-semibold min-w-0 truncate">{title}</span>
+                  <span className="text-xs text-stone-300 shrink-0 ml-2">{items.length} ขั้น {isOpen ? "▲" : "▼"}</span>
+                </button>
+                {isOpen && <div className="p-2 space-y-2 bg-stone-50">{items.map(renderCard)}</div>}
+              </div>
+            );
+          })}
+    </div>
+  );
+}
+
+
+function IgniteView({ tasks, setStatus, onEdit, onAdd, onContinue }) {
+  const [finishing, setFinishing] = useState(null);
+  const [tab, setTab] = useState("inprogress");
+  const all = tasks.filter((t) => t.job === 1);
+  const active = all.filter((t) => t.status !== "done" && t.status !== "cancel");
+  const rank = (t) => { const du = daysUntil(t.deadline); return du === null ? 99999 : du; };
+  const byDeadline = (a, b) => rank(a) - rank(b);
+  const newTasks = active.filter((t) => !["inprogress", "followup"].includes(t.status)).sort(byDeadline);
+  const inprog = active.filter((t) => t.status === "inprogress").sort(byDeadline);
+  const followup = active.filter((t) => t.status === "followup").sort(byDeadline);
+  const closed = all.filter((t) => t.status === "done" || t.status === "cancel").sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+  const cnt = { today: 0, soon: 0, week: 0 };
+  active.forEach((t) => { const k = igUrgency(t.deadline).key; if (cnt[k] !== undefined) cnt[k]++; });
+  const dueSoonCount = active.filter((t) => { const du = daysUntil(t.deadline); return du !== null && du <= 1; }).length;
+  const lightDay = inprog.length < 3 && dueSoonCount === 0;
+
+  const TABS = [
+    { k: "notset", label: "งานใหม่", items: newTasks },
+    { k: "inprogress", label: "กำลังทำ", items: inprog },
+    { k: "followup", label: "ติดตาม", items: followup },
+    { k: "done", label: "จบแล้ว", items: closed },
+  ];
+  const cur = TABS.find((x) => x.k === tab) || TABS[0];
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl bg-stone-900 text-white p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[11px] tracking-[0.2em] uppercase text-stone-400">Ignite · งานที่ต้องทำ</p>
+            <p className="text-lg font-bold mt-0.5">กำลังถืออยู่ {active.length} งาน</p>
+          </div>
+          <button onClick={onAdd} className="rounded-full px-3 py-1.5 text-sm font-medium bg-white/15 text-white flex items-center gap-1"><Plus size={16} /> เพิ่ม</button>
+        </div>
+        <button onClick={() => exportIgniteSummary(tasks)}
+          className="mt-3 w-full rounded-xl bg-white/10 text-white py-2 text-sm font-medium flex items-center justify-center gap-1.5 active:scale-[0.99] transition">
+          <Download size={16} /> สรุปงานที่เหลือ (Excel) ส่งหัวหน้า
+        </button>
+        <div className="grid grid-cols-3 gap-2 mt-3">
+          <div className="rounded-xl bg-red-500/20 p-2 text-center"><div className="text-xl font-bold text-red-300">{cnt.today}</div><div className="text-[11px] text-red-200/90">ส่งวันนี้/เลย</div></div>
+          <div className="rounded-xl bg-orange-500/20 p-2 text-center"><div className="text-xl font-bold text-orange-300">{cnt.soon}</div><div className="text-[11px] text-orange-200/90">ภายใน 3 วัน</div></div>
+          <div className="rounded-xl bg-amber-400/20 p-2 text-center"><div className="text-xl font-bold text-amber-200">{cnt.week}</div><div className="text-[11px] text-amber-100/90">ภายใน 7 วัน</div></div>
+        </div>
+      </div>
+
+      {lightDay && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 flex items-center gap-2">
+          <Sparkles size={16} className="text-emerald-500 shrink-0" />
+          <p className="text-sm text-emerald-700">วันนี้ Ignite ไม่แน่น (กำลังทำ {inprog.length} งาน · ไม่มีของด่วนพรุ่งนี้) — แทรกงานฟรีแลนซ์ระหว่างวันได้นะ</p>
+        </div>
+      )}
+
+      {/* sub-tabs */}
+      <div className="flex gap-1 bg-stone-100 rounded-xl p-1">
+        {TABS.map((x) => (
+          <button key={x.k} onClick={() => setTab(x.k)}
+            className={"flex-1 rounded-lg py-1.5 text-xs font-medium transition " + (tab === x.k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}>
+            {x.label} <span className="text-stone-400">{x.items.length}</span>
+          </button>
+        ))}
+      </div>
+
+      {tab === "done"
+        ? <DoneList all={all} exportFn={() => exportIgniteDone(tasks)} renderCard={(t) => <IgniteCard key={t.id} t={t} setStatus={setStatus} onEdit={onEdit} onFinish={setFinishing} onContinue={onContinue} />} />
+        : (cur.items.length === 0
+          ? <EmptyState title={"ไม่มีงานในหมวด “" + cur.label + "”"} sub={tab === "notset" ? "กดปุ่ม เพิ่ม เพื่อใส่งานใหม่" : ""} />
+          : <div className="space-y-2">{cur.items.map((t) => <IgniteCard key={t.id} t={t} setStatus={setStatus} onEdit={onEdit} onFinish={setFinishing} onContinue={onContinue} />)}</div>)}
+
+      {finishing && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setFinishing(null)} />
+          <div className="relative bg-white w-full max-w-sm rounded-3xl p-5 shadow-xl space-y-3">
+            <div>
+              <p className="font-bold text-stone-900">งานนี้เสร็จแบบไหน?</p>
+              <p className="text-sm text-stone-500 mt-0.5 truncate">“{finishing.title}”</p>
+            </div>
+            <button onClick={() => { setStatus(finishing, "followup"); setFinishing(null); }}
+              className="w-full rounded-xl border border-sky-200 bg-sky-50 p-3 text-left active:scale-[0.99] transition">
+              <span className="font-medium text-sky-700 block">ทำขั้นตอนนี้เสร็จ · ยังต้องติดตามต่อ</span>
+              <span className="text-xs text-sky-600/80">โปรเจคยังไม่จบ เช่น เสนอแบบไปแล้วรอลูกค้าตอบ</span>
+            </button>
+            <button onClick={() => { setStatus(finishing, "done"); setFinishing(null); }}
+              className="w-full rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-left active:scale-[0.99] transition">
+              <span className="font-medium text-emerald-700 block">จบโปรเจคเลย</span>
+              <span className="text-xs text-emerald-600/80">งานนี้เสร็จสมบูรณ์ ปิดได้</span>
+            </button>
+            <button onClick={() => setFinishing(null)} className="w-full text-sm text-stone-400 py-1">ยกเลิก</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IgniteCard({ t, setStatus, onEdit, onFinish, onContinue }) {
+  const u = igUrgency(t.deadline);
+  const uc = IG_URGENCY[u.key];
+  const st = IG_STATUS[t.status || "notset"];
+  const prio = IG_PRIO[t.priority];
+  const chip = "text-[11px] rounded-full px-2 py-0.5";
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden flex">
+      <div className={"w-1.5 shrink-0 " + uc.stripe} />
+      <div className="flex-1 p-3.5 min-w-0" onClick={() => onEdit(t)}>
+        {t.linkedFrom && <p className="text-[11px] text-sky-600 mb-1 truncate">🔗 ต่อจาก: {t.linkedFromTitle}</p>}
+        <div className="flex items-start justify-between gap-2">
+          <p className="font-semibold text-stone-900 leading-snug">{t.title}{t.phase && <span className="text-violet-600"> - {t.phase}</span>}</p>
+          <span className={chip + " shrink-0 " + st.cls}>{st.label}</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {t.type && <span className={chip + " bg-stone-100 text-stone-600"}>{t.type}</span>}
+          {t.owner && <span className={chip + " bg-indigo-50 text-indigo-600"}>{t.owner}</span>}
+          {prio && <span className={chip + " inline-flex items-center gap-1 bg-stone-100 text-stone-600"}><span className={"w-1.5 h-1.5 rounded-full " + prio.dot} />{t.priority}</span>}
+        </div>
+        <p className={"text-xs font-medium mt-2 " + uc.text}>{t.deadline ? u.label + " · " + fmtThaiDate(t.deadline) : "ยังไม่มีกำหนดส่ง"}</p>
+        {t.notes && <p className="text-xs text-stone-400 mt-1.5 truncate">{t.notes}</p>}
+      </div>
+      <div className="flex flex-col justify-center gap-1.5 pr-3 pl-1">
+        {(!t.status || t.status === "notset") && (
+          <button onClick={(e) => { e.stopPropagation(); setStatus(t, "inprogress"); }}
+            className="rounded-lg bg-stone-900 text-white text-xs px-3 py-2 font-medium whitespace-nowrap">เริ่มงาน</button>
+        )}
+        {t.status === "inprogress" && (
+          <>
+            <button onClick={(e) => { e.stopPropagation(); onFinish(t); }}
+              className="rounded-lg bg-emerald-500 text-white text-xs px-3 py-1.5 font-medium whitespace-nowrap inline-flex items-center justify-center gap-1"><CheckCircle2 size={13} /> เสร็จ</button>
+            <button onClick={(e) => { e.stopPropagation(); setStatus(t, "cancel"); }}
+              className="rounded-lg border border-stone-200 text-stone-500 text-xs px-3 py-1.5 whitespace-nowrap">ยกเลิก</button>
+          </>
+        )}
+        {t.status === "followup" && (
+          <>
+            <button onClick={(e) => { e.stopPropagation(); onContinue(t); }}
+              className="rounded-lg bg-sky-500 text-white text-xs px-3 py-1.5 font-medium whitespace-nowrap inline-flex items-center justify-center gap-1"><ArrowRight size={13} /> ทำงานต่อ</button>
+            <button onClick={(e) => { e.stopPropagation(); setStatus(t, "done"); }}
+              className="rounded-lg border border-stone-200 text-stone-500 text-xs px-3 py-1.5 whitespace-nowrap">จบงาน</button>
+          </>
+        )}
+        {(t.status === "done" || t.status === "cancel") && (
+          <button onClick={(e) => { e.stopPropagation(); setStatus(t, "notset"); }}
+            className="rounded-lg border border-stone-200 text-stone-400 text-xs px-3 py-2 whitespace-nowrap">เปิดใหม่</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ============ Freelance view (separate — own data/summary) ============ */
+const FL_STEPS = ["เสนอแบบ", "แก้ไข(1)", "แก้ไข(2)", "แก้ไข(3)", "แก้ไข(4)", "แก้ไขเกิน", "เตรียมไฟล์", "อื่นๆ"];
+const FL_CHANNELS = ["Fastwork", "ส่วนตัว"];
+function exportFreelanceSummary(tasks) {
+  const active = tasks.filter((t) => t.job === 2 && t.status !== "done" && t.status !== "cancel");
+  const rk = (t) => { const du = daysUntil(t.deadline); return du === null ? 99999 : du; };
+  active.sort((a, b) => rk(a) - rk(b));
+  const baht = (n) => (n ? Number(n).toLocaleString("th-TH") : "");
+  const header = ["ลำดับ", "โปรเจค", "ขั้นตอน", "ลูกค้า", "ราคา", "Status", "กำหนดส่ง", "เหลือ (วัน)", "โน้ต"];
+  const rows = active.map((t, i) => { const du = daysUntil(t.deadline); return {
+    "ลำดับ": i + 1, "โปรเจค": t.title || "", "ขั้นตอน": t.step || "", "ลูกค้า": t.client || "", "ราคา": baht(t.price),
+    "Status": IG_STLABEL[t.status || "notset"], "กำหนดส่ง": t.deadline ? fmtThaiDate(t.deadline) : "",
+    "เหลือ (วัน)": (t.deadline && du !== null) ? du : "", "โน้ต": t.notes || "" }; });
+  const ws = XLSX.utils.json_to_sheet(rows, { header });
+  ws["!cols"] = header.map((h) => ({ wch: h === "โปรเจค" || h === "โน้ต" ? 26 : 11 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "สรุปฟรีแลนซ์");
+  const d = new Date(); const pad = (n) => String(n).padStart(2, "0");
+  XLSX.writeFile(wb, `สรุปฟรีแลนซ์-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.xlsx`);
+}
+
+function FreelanceView({ tasks, setStatus, setPaid, onEdit, onAdd, onContinue }) {
+  const [finishing, setFinishing] = useState(null);
+  const [tab, setTab] = useState("inprogress");
+  const all = tasks.filter((t) => t.job === 2);
+  const active = all.filter((t) => t.status !== "done" && t.status !== "cancel");
+  const rank = (t) => { const du = daysUntil(t.deadline); return du === null ? 99999 : du; };
+  const byDeadline = (a, b) => rank(a) - rank(b);
+  const newTasks = active.filter((t) => !["inprogress", "followup"].includes(t.status)).sort(byDeadline);
+  const inprog = active.filter((t) => t.status === "inprogress").sort(byDeadline);
+  const followup = active.filter((t) => t.status === "followup").sort(byDeadline);
+  const closed = all.filter((t) => t.status === "done" || t.status === "cancel").sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const TABS = [
+    { k: "notset", label: "งานใหม่", items: newTasks },
+    { k: "inprogress", label: "กำลังทำ", items: inprog },
+    { k: "followup", label: "ติดตาม", items: followup },
+    { k: "done", label: "จบแล้ว", items: closed },
+  ];
+  const cur = TABS.find((x) => x.k === tab) || TABS[0];
+
+  return (
+    <div className="space-y-4">
+      <FreelanceRateCalc />
+      <div className="rounded-2xl bg-amber-600 text-white p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[11px] tracking-[0.2em] uppercase text-amber-200">ฟรีแลนซ์ · โปรเจค</p>
+            <p className="text-lg font-bold mt-0.5">กำลังทำอยู่ {active.length} โปรเจค</p>
+          </div>
+          <button onClick={onAdd} className="rounded-full px-3 py-1.5 text-sm font-medium bg-white/20 text-white flex items-center gap-1"><Plus size={16} /> เพิ่ม</button>
+        </div>
+      </div>
+
+      <div className="flex gap-1 bg-stone-100 rounded-xl p-1">
+        {TABS.map((x) => (
+          <button key={x.k} onClick={() => setTab(x.k)}
+            className={"flex-1 rounded-lg py-1.5 text-xs font-medium transition " + (tab === x.k ? "bg-white text-stone-900 shadow-sm" : "text-stone-500")}>
+            {x.label} <span className="text-stone-400">{x.items.length}</span>
+          </button>
+        ))}
+      </div>
+
+      {tab === "done"
+        ? <DoneList all={all} renderCard={(t) => <FreelanceCard key={t.id} t={t} setStatus={setStatus} setPaid={setPaid} onEdit={onEdit} onFinish={setFinishing} onContinue={onContinue} />} />
+        : (cur.items.length === 0
+          ? <EmptyState title={"ไม่มีงานในหมวด “" + cur.label + "”"} sub={tab === "notset" ? "กดปุ่ม เพิ่ม เพื่อใส่โปรเจคใหม่" : ""} />
+          : <div className="space-y-2">{cur.items.map((t) => <FreelanceCard key={t.id} t={t} setStatus={setStatus} setPaid={setPaid} onEdit={onEdit} onFinish={setFinishing} onContinue={onContinue} />)}</div>)}
+
+      {finishing && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setFinishing(null)} />
+          <div className="relative bg-white w-full max-w-sm rounded-3xl p-5 shadow-xl space-y-3">
+            <div><p className="font-bold text-stone-900">โปรเจคนี้เสร็จแบบไหน?</p><p className="text-sm text-stone-500 mt-0.5 truncate">“{finishing.title}”</p></div>
+            <button onClick={() => { setStatus(finishing, "followup"); setFinishing(null); }}
+              className="w-full rounded-xl border border-sky-200 bg-sky-50 p-3 text-left active:scale-[0.99] transition">
+              <span className="font-medium text-sky-700 block">ส่งงานให้ลูกค้าแล้ว · รอคอมเมนต์</span>
+              <span className="text-xs text-sky-600/80">โปรเจคยังไม่จบ รอลูกค้าตอบกลับ</span>
+            </button>
+            <button onClick={() => { setStatus(finishing, "done"); setFinishing(null); }}
+              className="w-full rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-left active:scale-[0.99] transition">
+              <span className="font-medium text-emerald-700 block">จบโปรเจคเลย</span>
+              <span className="text-xs text-emerald-600/80">ส่งงานจบ ปิดได้</span>
+            </button>
+            <button onClick={() => setFinishing(null)} className="w-full text-sm text-stone-400 py-1">ยกเลิก</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FreelanceCard({ t, setStatus, setPaid, onEdit, onFinish, onContinue }) {
+  const u = igUrgency(t.deadline);
+  const uc = IG_URGENCY[u.key];
+  const st = IG_STATUS[t.status || "notset"];
+  const chip = "text-[11px] rounded-full px-2 py-0.5";
+  const baht = (n) => Number(n).toLocaleString("th-TH");
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden flex">
+      <div className={"w-1.5 shrink-0 " + uc.stripe} />
+      <div className="flex-1 p-3.5 min-w-0" onClick={() => onEdit(t)}>
+        {t.linkedFrom && <p className="text-[11px] text-sky-600 mb-1 truncate">🔗 ต่อจาก: {t.linkedFromTitle}</p>}
+        <div className="flex items-start justify-between gap-2">
+          <p className="font-semibold text-stone-900 leading-snug">{t.title}{t.step && <span className="text-amber-600"> - {t.step}</span>}</p>
+          <span className={chip + " shrink-0 " + st.cls}>{st.label}</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {t.client && <span className={chip + " bg-stone-100 text-stone-600"}>{t.client}</span>}
+          {t.channel && <span className={chip + " bg-stone-100 text-stone-500"}>{t.channel}</span>}
+          {t.price ? <span className={chip + " bg-amber-50 text-amber-700 font-medium"}>฿{baht(t.price)}</span> : null}
+          {t.channel === "ส่วนตัว" && setPaid && (
+            t.paid
+              ? <button onClick={(e) => { e.stopPropagation(); setPaid(t, false); }} className={chip + " bg-emerald-50 text-emerald-600 font-medium"}>จ่ายแล้ว ✓</button>
+              : <button onClick={(e) => { e.stopPropagation(); setPaid(t, true); }} className={chip + " bg-red-50 text-red-600 font-medium"}>ยังไม่จ่าย · แตะเมื่อได้เงิน</button>
+          )}
+        </div>
+        <p className={"text-xs font-medium mt-2 " + uc.text}>{t.deadline ? u.label + " · " + fmtThaiDate(t.deadline) : "ยังไม่มีกำหนดส่ง"}</p>
+        {t.notes && <p className="text-xs text-stone-400 mt-1.5 truncate">{t.notes}</p>}
+      </div>
+      <div className="flex flex-col justify-center gap-1.5 pr-3 pl-1">
+        {(!t.status || t.status === "notset") && (
+          <button onClick={(e) => { e.stopPropagation(); setStatus(t, "inprogress"); }}
+            className="rounded-lg bg-stone-900 text-white text-xs px-3 py-2 font-medium whitespace-nowrap">เริ่มงาน</button>
+        )}
+        {t.status === "inprogress" && (
+          <>
+            <button onClick={(e) => { e.stopPropagation(); onFinish(t); }}
+              className="rounded-lg bg-emerald-500 text-white text-xs px-3 py-1.5 font-medium whitespace-nowrap inline-flex items-center justify-center gap-1"><CheckCircle2 size={13} /> เสร็จ</button>
+            <button onClick={(e) => { e.stopPropagation(); setStatus(t, "cancel"); }}
+              className="rounded-lg border border-stone-200 text-stone-500 text-xs px-3 py-1.5 whitespace-nowrap">ยกเลิก</button>
+          </>
+        )}
+        {t.status === "followup" && (
+          <>
+            <button onClick={(e) => { e.stopPropagation(); onContinue(t); }}
+              className="rounded-lg bg-sky-500 text-white text-xs px-3 py-1.5 font-medium whitespace-nowrap inline-flex items-center justify-center gap-1"><ArrowRight size={13} /> ทำงานต่อ</button>
+            <button onClick={(e) => { e.stopPropagation(); setStatus(t, "done"); }}
+              className="rounded-lg border border-stone-200 text-stone-500 text-xs px-3 py-1.5 whitespace-nowrap">จบงาน</button>
+          </>
+        )}
+        {(t.status === "done" || t.status === "cancel") && (
+          <button onClick={(e) => { e.stopPropagation(); setStatus(t, "notset"); }}
+            className="rounded-lg border border-stone-200 text-stone-400 text-xs px-3 py-2 whitespace-nowrap">เปิดใหม่</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function JobView({ job, tasks, cardProps, blockedSet, showDone, setShowDone, onAdd }) {
+  const a = A[JOBS[job].accent];
+  const all = tasks.filter((t) => t.job === job);
+  const active = all.filter((t) => !isDone(t));
+  const done = all.filter((t) => isDone(t));
+  const groups = STAGES[job].map((s) => ({ s, items: active.filter((t) => t.stage === s.key) })).filter((g) => g.items.length > 0);
+
+  return (
+    <div className="space-y-4">
+      {job === 3 && <StickerCalc />}
+      {job === 2 && <FreelanceRateCalc />}
+
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className={"text-lg font-bold " + a.text}>{JOBS[job].name}</h2>
+          <p className="text-xs text-stone-500">{active.length} งานที่ทำอยู่ · {done.length} เสร็จแล้ว</p>
+        </div>
+        <button onClick={onAdd} className={"rounded-full px-3 py-1.5 text-sm font-medium text-white flex items-center gap-1 " + a.bg}>
+          <Plus size={16} /> เพิ่ม
+        </button>
+      </div>
+
+      {active.length === 0 && done.length === 0 && <EmptyState title="ยังไม่มีงานในกองนี้" sub="กดปุ่ม เพิ่ม ด้านบนเพื่อเริ่ม" />}
+
+      {job === 3
+        ? (active.length > 0 && <ShopeeQueue items={active} cardProps={cardProps} blockedSet={blockedSet} />)
+        : groups.map(({ s, items }) => (
+            <div key={s.key}>
+              <div className="flex items-center gap-2 mb-2 px-1">
+                <span className={"w-1.5 h-1.5 rounded-full " + a.dot} />
+                <h3 className="text-xs tracking-wide uppercase text-stone-500 font-semibold">{s.label}</h3>
+                <span className="text-xs text-stone-400">({items.length})</span>
+              </div>
+              <div className="space-y-2">{items.map((t) => <TaskCard key={t.id} t={t} {...cardProps} />)}</div>
+            </div>
+          ))}
+
+      {done.length > 0 && (
+        <div className="pt-2">
+          <button onClick={() => setShowDone(!showDone)} className="text-sm text-stone-500">
+            {showDone ? "ซ่อน" : "แสดง"}งานที่เสร็จแล้ว ({done.length})
+          </button>
+          {showDone && <div className="space-y-2 mt-2 opacity-60">{done.map((t) => <TaskCard key={t.id} t={t} {...cardProps} />)}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============ task card (inline controls) ============ */
+function TaskCard({ t, setStage, setMine, setWaiting, followedUp, onEdit }) {
+  const a = A[JOBS[t.job].accent];
+  const done = isDone(t);
+  const tone = deadlineTone(daysUntil(t.deadline));
+  const waiting = t.ball === "wait";
+  const age = waiting ? daysSince(t.waitSince) : null;
+  const chase = waiting && age !== null && age >= CHASE_DAYS;
+  const priceIssue = t.job === 2 && !t.priceConfirmed && ["design", "revise", "deliver"].includes(t.stage);
+
+  const border = done ? "border-stone-200" : chase ? "border-rose-300" : a.border;
+
+  return (
+    <div className={"rounded-2xl border bg-white p-3.5 " + border}>
+      {/* header row */}
+      <div className="flex items-start gap-2">
+        <span className={"inline-block w-1.5 h-1.5 rounded-full mt-2 shrink-0 " + a.dot} />
+        <button onClick={() => onEdit(t)} className="flex-1 text-left min-w-0">
+          <div className={"font-medium text-stone-900 " + (done ? "line-through text-stone-400" : "")}>{t.title}</div>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
+            {t.client && <span className="text-xs text-stone-500 flex items-center gap-1"><User size={11} />{t.client}</span>}
+            {t.job === 3 && <span className="text-[11px] text-teal-700 bg-teal-50 rounded-full px-2 py-0.5 font-medium">{t.orderType === "preorder" ? "พรีออเดอร์" : "ทั่วไป"}</span>}
+            {t.job === 3 && t.size === "big" && <span className="text-[11px] text-orange-700 bg-orange-50 rounded-full px-2 py-0.5 font-medium">ล็อตใหญ่</span>}
+            {t.job === 3 && t.needFile && <span className="text-[11px] text-amber-700 bg-amber-50 rounded-full px-2 py-0.5 font-medium">เตรียมไฟล์</span>}
+            {priceIssue && <span className="text-[11px] text-rose-600 bg-rose-50 rounded-full px-2 py-0.5 font-medium">ยังไม่เคาะราคา</span>}
+          </div>
+        </button>
+        {tone && !done && (
+          <span className={"text-[11px] font-semibold rounded-full px-2 py-0.5 border shrink-0 " + tone.c + " " + tone.bg + " " + tone.b}>
+            <Calendar size={10} className="inline mr-0.5 -mt-0.5" />{fmtThaiDate(t.deadline)}
+          </span>
+        )}
+      </div>
+
+      {!done && (
+        <div className="mt-3 space-y-2">
+          {/* stage dropdown */}
+          <select value={t.stage} onChange={(e) => setStage(t, e.target.value)}
+            className="w-full rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-2 text-sm text-stone-700 focus:outline-none">
+            {STAGES[t.job].map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+          </select>
+
+          {/* whose turn */}
+          {t.job !== 3 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="inline-flex rounded-lg border border-stone-200 overflow-hidden text-sm">
+              <button onClick={() => setMine(t)}
+                className={"px-3 py-1.5 flex items-center gap-1 " + (!waiting ? "bg-stone-900 text-white" : "text-stone-500")}>
+                <Hand size={13} /> ตาฉัน
+              </button>
+              <button onClick={() => setWaiting(t)}
+                className={"px-3 py-1.5 flex items-center gap-1 " + (waiting ? "bg-rose-500 text-white" : "text-stone-500")}>
+                <Hourglass size={13} /> รอ
+              </button>
+            </div>
+
+            {waiting && (
+              <>
+                <select value={t.waitOn} onChange={(e) => setWaiting(t, e.target.value)}
+                  className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-sm text-stone-700 focus:outline-none">
+                  {WAIT_BY_JOB[t.job].map((w) => <option key={w} value={w}>รอ {w}</option>)}
+                </select>
+                <span className={"text-xs font-medium " + (chase ? "text-rose-600" : "text-stone-400")}>
+                  {age === 0 ? "รอวันนี้" : "รอมา " + age + " วัน"}
+                </span>
+                <button onClick={() => followedUp(t)}
+                  className="ml-auto text-xs font-medium text-stone-600 border border-stone-200 rounded-full px-3 py-1 active:scale-95">
+                  ตามแล้ว
+                </button>
+              </>
+            )}
+          </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============ workload ============ */
+function Workload({ tasks, settings, setSettings }) {
+  const capacity = settings.weekdayHrs * 5 + WEEKEND_HRS[settings.weekendMode];
+  const side = tasks.filter((t) => t.job === 2 || t.job === 3);
+  const dueSoon = side.filter((t) => { const d = daysUntil(t.deadline); return d !== null && d <= 7; });
+  const demand = dueSoon.reduce((s, t) => s + (Number(t.estHours) || 0), 0);
+  const backlog = side.reduce((s, t) => s + (Number(t.estHours) || 0), 0);
+  const job1 = tasks.filter((t) => t.job === 1);
+  const job1Lic = job1.filter((t) => t.stage.startsWith("lic_")).length;
+
+  const ratio = capacity > 0 ? demand / capacity : 0;
+  const pct = Math.min(100, Math.round(ratio * 100));
+  let verdict, vColor, vText, barColor;
+  if (ratio <= 0.7) { verdict = "โอเค รับไหว"; vColor = "text-emerald-600"; barColor = "bg-emerald-500"; vText = "ยังมีที่ว่างพอรับงานเพิ่มได้อีกนิด"; }
+  else if (ratio <= 1) { verdict = "แน่นแล้ว"; vColor = "text-amber-600"; barColor = "bg-amber-500"; vText = "สัปดาห์นี้เกือบเต็ม ระวังอย่าเพิ่งรับงานด่วนเพิ่ม"; }
+  else { verdict = "โหลดเกิน!"; vColor = "text-red-600"; barColor = "bg-red-500"; vText = "งานที่ต้องส่งใน 7 วันมากกว่าเวลาที่มี ลองเลื่อน/ต่อรองกำหนดส่ง หรือปฏิเสธงานใหม่"; }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-lg font-bold text-stone-900">ภาระงานสัปดาห์นี้</h2>
+        <p className="text-xs text-stone-500">ประเมินจากเวลานอกงานประจำ (เย็นวันธรรมดา + เสาร์อาทิตย์)</p>
+      </div>
+
+      <div className="rounded-2xl border border-stone-200 bg-white p-4">
+        <p className="text-xs tracking-wide uppercase text-stone-400 font-semibold mb-2">เสาร์–อาทิตย์นี้</p>
+        <div className="space-y-2">
+          {Object.keys(WEEKEND_HRS).map((k) => {
+            const on = settings.weekendMode === k;
+            return (
+              <button key={k} onClick={() => setSettings({ ...settings, weekendMode: k })}
+                className={"w-full text-left rounded-xl border p-3 flex items-center justify-between transition " + (on ? "border-stone-900 bg-stone-50" : "border-stone-200")}>
+                <span className="text-sm text-stone-700 pr-2">{WEEKEND_LABEL[k]}</span>
+                <span className={"text-xs font-semibold shrink-0 " + (on ? "text-stone-900" : "text-stone-400")}>~{WEEKEND_HRS[k]} ชม.</span>
+              </button>
+            );
+          })}
+        </div>
+        <label className="flex items-center justify-between mt-4 pt-3 border-t border-stone-100">
+          <span className="text-sm text-stone-600">เวลาทำงานเย็นวันธรรมดา (ต่อคืน)</span>
+          <span className="flex items-center gap-2">
+            <input type="number" step="0.5" min="0" max="6" value={settings.weekdayHrs}
+              onChange={(e) => setSettings({ ...settings, weekdayHrs: Number(e.target.value) })}
+              className="w-16 text-right rounded-lg border border-stone-300 px-2 py-1 text-sm" />
+            <span className="text-sm text-stone-400">ชม.</span>
+          </span>
+        </label>
+      </div>
+
+      <div className="rounded-2xl border border-stone-200 bg-white p-5">
+        <div className="flex items-baseline justify-between mb-1">
+          <span className={"text-2xl font-bold " + vColor}>{verdict}</span>
+          <span className="text-sm text-stone-500">{demand} / {capacity} ชม.</span>
+        </div>
+        <div className="h-3 rounded-full bg-stone-100 overflow-hidden mb-3">
+          <div className={"h-full rounded-full transition-all " + barColor} style={{ width: pct + "%" }} />
+        </div>
+        <p className="text-sm text-stone-600">{vText}</p>
+        <div className="grid grid-cols-2 gap-3 mt-4">
+          <Stat label="ต้องส่งใน 7 วัน" value={dueSoon.length + " งาน"} sub={demand + " ชม."} />
+          <Stat label="งานค้างทั้งหมด (ฟรีแลนซ์+Shopee)" value={side.length + " งาน"} sub={backlog + " ชม."} />
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+        <p className="text-sm text-indigo-800 font-medium mb-1">งานประจำ (Ignite) — {job1.length} งานที่ทำอยู่</p>
+        <p className="text-xs text-indigo-700/80">
+          {job1Lic > 0 ? "มี " + job1Lic + " งานอยู่ในรอบตรวจลิขสิทธิ์ " : ""}
+          งานส่วนนี้อยู่ในเวลา 9:00–18:00 ถ้าล้นออกนอกเวลาบ่อย ๆ จะเบียดเวลาฟรีแลนซ์
+        </p>
+      </div>
+
+      <p className="text-[11px] text-stone-400 text-center px-4">
+        * ปรับเวลาต่อคืน/โหมดเสาร์อาทิตย์ให้ตรงชีวิตจริงได้ แล้วอย่าลืมใส่ “ชั่วโมงที่คาดว่าใช้” ในงานฟรีแลนซ์/Shopee
+      </p>
+    </div>
+  );
+}
+function Stat({ label, value, sub }) {
+  return (
+    <div className="rounded-xl bg-stone-50 p-3">
+      <div className="text-lg font-bold text-stone-900">{value}</div>
+      <div className="text-sm text-stone-500">{sub}</div>
+      <div className="text-[11px] text-stone-400 mt-1 leading-tight">{label}</div>
+    </div>
+  );
+}
+
+/* ============ sticker layout calculator ============ */
+const PKEY = "noey-sticker-presets-v1";
+const PAPERS = { A3: [297, 420], A4: [210, 297] };
+// ค่ามาตรฐานของเนย (mm)
+const M_SIDE = 12;    // ขอบซ้าย/ขวา
+const M_TOP = 12;     // ขอบบน
+const M_BOTTOM = 25;  // ขอบล่าง (ไว้จับกระดาษ)
+const GAP = 4;        // ระยะห่างระหว่างชิ้น
+const CORNER = 10;    // มุมด้านในเว้น 10×10 (จุดมาร์คไดคัท)
+
+function usable(paper) {
+  const [pw, ph] = PAPERS[paper];
+  return [pw - 2 * M_SIDE, ph - M_TOP - M_BOTTOM];
+}
+function fitGrid(wmm, hmm, uw, uh) {
+  const g = (cw, ch) => ({ cols: Math.max(0, Math.floor((uw + GAP) / (cw + GAP))), rows: Math.max(0, Math.floor((uh + GAP) / (ch + GAP))) });
+  const a = g(wmm, hmm), b = g(hmm, wmm);
+  const na = a.cols * a.rows, nb = b.cols * b.rows;
+  return nb > na ? { n: nb, cols: b.cols, rows: b.rows, rot: true } : { n: na, cols: a.cols, rows: a.rows, rot: false };
+}
+function fitHex(d, uw, uh) {
+  const colPitch = d + GAP, rowPitch = (d + GAP) * Math.sqrt(3) / 2;
+  const cols = Math.max(0, Math.floor((uw + GAP) / colPitch));
+  if (cols <= 0 || uh < d) return { n: 0, rows: 0 };
+  const rows = Math.max(1, Math.floor((uh - d) / rowPitch) + 1);
+  const offCols = Math.max(0, Math.floor((uw + GAP - colPitch / 2) / colPitch));
+  const n = Math.ceil(rows / 2) * cols + Math.floor(rows / 2) * offCols;
+  return { n, rows };
+}
+
+function StickerCalc() {
+  const [open, setOpen] = useState(false);
+  const [w, setW] = useState(3);
+  const [h, setH] = useState(3);
+  const [shape, setShape] = useState("circle");
+  const [paper, setPaper] = useState("A3");
+  const [stagger, setStagger] = useState(true);
+  const [presets, setPresets] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => { (async () => { setPresets(await loadKey(PKEY, [])); setLoaded(true); })(); }, []);
+  useEffect(() => { if (loaded) saveKey(PKEY, presets); }, [presets, loaded]);
+
+  const [uw, uh] = usable(paper);
+  const grid = fitGrid((Number(w) || 0) * 10, (Number(h) || 0) * 10, uw, uh);
+  const hex = shape === "circle" ? fitHex((Number(w) || 0) * 10, uw, uh) : null;
+  const isCircle = shape === "circle";
+  const useHex = isCircle && stagger;
+  const n = useHex ? hex.n : grid.n;
+
+  const save = () => {
+    const label = (isCircle ? "⬤ " : "▢ ") + w + "×" + h + " ซม. บน " + paper + (useHex ? " (สลับ)" : "");
+    setPresets((p) => [{ id: "p_" + Date.now(), label, n }, ...p.filter((x) => x.label !== label)].slice(0, 20));
+  };
+  const numCls = "w-16 rounded-lg border border-stone-300 px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-teal-400";
+
+  return (
+    <div className="rounded-2xl border border-teal-200 bg-white overflow-hidden">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between p-3.5">
+        <span className="flex items-center gap-2 font-medium text-teal-700"><Calculator size={18} /> คำนวณการวางสติ๊กเกอร์</span>
+        <span className="text-stone-400 text-sm">{open ? "ซ่อน" : "เปิด"}</span>
+      </button>
+
+      {open && (
+        <div className="px-3.5 pb-4 space-y-3 border-t border-stone-100 pt-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span className="text-sm text-stone-600">ขนาดดวง</span>
+            <input type="number" step="0.1" min="0" value={w} onChange={(e) => { setW(e.target.value); if (isCircle) setH(e.target.value); }} className={numCls} />
+            <span className="text-stone-400">×</span>
+            <input type="number" step="0.1" min="0" value={h} onChange={(e) => setH(e.target.value)} disabled={isCircle} className={numCls + (isCircle ? " bg-stone-100 text-stone-400" : "")} />
+            <span className="text-sm text-stone-400">ซม.</span>
+          </div>
+
+          <div className="flex gap-2">
+            <button onClick={() => { setShape("circle"); setH(w); }}
+              className={"flex-1 rounded-lg border py-1.5 text-sm " + (isCircle ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>⬤ วงกลม</button>
+            <button onClick={() => setShape("rect")}
+              className={"flex-1 rounded-lg border py-1.5 text-sm " + (!isCircle ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>▢ สี่เหลี่ยม</button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-stone-600">กระดาษ</span>
+            {Object.keys(PAPERS).map((p) => (
+              <button key={p} onClick={() => setPaper(p)}
+                className={"rounded-lg border px-3 py-1 text-sm " + (paper === p ? "bg-teal-600 text-white border-transparent" : "border-stone-200 text-stone-500")}>{p}</button>
+            ))}
+          </div>
+
+          {isCircle && (
+            <div className="flex gap-2">
+              <button onClick={() => setStagger(false)}
+                className={"flex-1 rounded-lg border py-1.5 text-sm " + (!stagger ? "bg-teal-600 text-white border-transparent" : "border-stone-200 text-stone-500")}>เรียงตาราง</button>
+              <button onClick={() => setStagger(true)}
+                className={"flex-1 rounded-lg border py-1.5 text-sm " + (stagger ? "bg-teal-600 text-white border-transparent" : "border-stone-200 text-stone-500")}>เรียงสลับ (เบียด)</button>
+            </div>
+          )}
+
+          <div className="rounded-xl bg-teal-50 p-3 flex items-center justify-between">
+            <div>
+              <div className="text-2xl font-bold text-teal-700 leading-none">~{n} ดวง<span className="text-sm font-normal text-teal-600">/แผ่น</span></div>
+              <div className="text-xs text-teal-600/80 mt-1">
+                {isCircle ? ("ตาราง " + grid.n + " · สลับ " + hex.n + " ดวง") : (grid.cols + " × " + grid.rows + " ดวง" + (grid.rot ? " (หมุนดวง)" : ""))}
+              </div>
+            </div>
+            <button onClick={save} className="rounded-full bg-teal-600 text-white text-sm font-medium px-4 py-2 active:scale-95">บันทึกไว้</button>
+          </div>
+          <p className="text-[11px] text-stone-400">ค่ามาตรฐาน: A3 · ขอบบน/ข้าง 12 · ล่าง 25 · เว้นชิ้น 4 มม. — ตัวเลขกะคร่าว ๆ ไว้คุยลูกค้า</p>
+
+          {presets.length > 0 && (
+            <div className="pt-1">
+              <p className="text-xs tracking-wide uppercase text-stone-400 font-semibold mb-1.5">ค่าที่บันทึกไว้</p>
+              <div className="space-y-1.5">
+                {presets.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between rounded-lg bg-stone-50 px-3 py-2">
+                    <span className="text-sm text-stone-700">{p.label}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-teal-700">{p.n} ดวง</span>
+                      <button onClick={() => setPresets((list) => list.filter((x) => x.id !== p.id))} className="text-stone-300 hover:text-red-500"><X size={16} /></button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============ Shopee daily queue ============ */
+const NIGHT_CAP = 5; // ทำได้สูงสุดคืนละ 5 ออเดอร์
+
+function ShopeeQueue({ items, cardProps, blockedSet }) {
+  const pri = (t) => (t.orderType === "preorder" ? 1 : 0); // ทั่วไปก่อน
+  const sorted = [...items].sort((a, b) => {
+    if (pri(a) !== pri(b)) return pri(a) - pri(b);
+    const da = daysUntil(a.deadline), db = daysUntil(b.deadline);
+    if ((da ?? 999) !== (db ?? 999)) return (da ?? 999) - (db ?? 999);
+    return (a.createdAt || 0) - (b.createdAt || 0);
+  });
+  const days = [];
+  for (let i = 0; i < sorted.length; i += NIGHT_CAP) days.push(sorted.slice(i, i + NIGHT_CAP));
+  const dates = workingDates(days.length, blockedSet || new Set());
+  const dayLabel = (i) => {
+    const iso = dates[i];
+    if (!iso) return "คืนถัดไป";
+    const du = daysUntil(iso);
+    if (du === 0) return "คืนนี้ · " + fmtThaiDate(iso);
+    if (du === 1) return "พรุ่งนี้ · " + fmtThaiDate(iso);
+    return dowShort(iso) + ". " + fmtThaiDate(iso);
+  };
+
+  const normalCount = items.filter((t) => t.orderType !== "preorder").length;
+  const normalOverflow = Math.max(0, normalCount - NIGHT_CAP);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-teal-200 bg-teal-50 p-3.5">
+        <div className="font-semibold text-teal-800">{items.length} ออเดอร์ค้าง · ใช้ ~{days.length} คืน</div>
+        <div className="text-xs text-teal-600 mt-0.5">ทำได้คืนละ {NIGHT_CAP} · สินค้าทั่วไปทำก่อน (ควรส่งวันรุ่งขึ้น) · ข้ามวันที่ไม่ว่างให้แล้ว</div>
+        {normalOverflow > 0 && (
+          <div className="text-xs text-red-600 font-medium mt-1.5 flex items-center gap-1">
+            <AlertTriangle size={13} /> มีสินค้าทั่วไป {normalOverflow} อันเกินโควตาคืนนี้ — ควรรีบส่ง
+          </div>
+        )}
+      </div>
+
+      {days.map((batch, i) => (
+        <div key={i}>
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <span className={"w-1.5 h-1.5 rounded-full " + (i === 0 ? "bg-teal-500" : "bg-stone-300")} />
+            <h3 className="text-xs tracking-wide uppercase font-semibold text-stone-500">{dayLabel(i)}</h3>
+            <span className="text-xs text-stone-400">({batch.length})</span>
+          </div>
+          <div className="space-y-2">{batch.map((t) => <TaskCard key={t.id} t={t} {...cardProps} />)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ============ personal: blocked days + wishlist ============ */
+const DOW_ABBR = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
+const PERIODS = [{ k: "allday", label: "ทั้งวัน" }, { k: "morning", label: "เช้า" }, { k: "noon", label: "กลางวัน" }, { k: "evening", label: "เย็น" }, { k: "night", label: "กลางคืน" }];
+const periodLabel = (k) => (PERIODS.find((x) => x.k === k) || {}).label || "";
+// จัดวันเรียนตามวันในสัปดาห์ที่เลือก (days = array ของ 0-6) ข้ามวันไม่ว่าง
+function courseSchedule(course, blocked) {
+  const need = Math.max(0, Number(course.sessions) || 0);
+  const days = course.days || [];
+  if (!course.start || need === 0 || days.length === 0) return [];
+  const out = [];
+  const d = new Date(course.start + "T00:00:00");
+  let guard = 0;
+  while (out.length < need && guard < 3000) {
+    const iso = isoOf(d), dow = d.getDay();
+    if (days.includes(dow) && !blocked.has(iso)) out.push(iso);
+    d.setDate(d.getDate() + 1); guard++;
+  }
+  return out;
+}
+
+function PersonalPage({ plans, setPlans, blockedSet, courses, setCourses }) {
+  const [showPlan, setShowPlan] = useState(false);
+  const [showCourse, setShowCourse] = useState(false);
+  const emptyPlan = { id: null, name: "", date: "", allDay: false, hours: 1, minutes: 0 };
+  const emptyCourse = { name: "", minutes: 30, sessions: 8, start: addDays(0), days: [] };
+  const [pForm, setPForm] = useState(emptyPlan);
+  const [cForm, setCForm] = useState(emptyCourse);
+  const pset = (k, v) => setPForm((p) => ({ ...p, [k]: v }));
+  const cset = (k, v) => setCForm((p) => ({ ...p, [k]: v }));
+
+  const sorted = [...plans].sort((a, b) => { if ((a.done ? 1 : 0) !== (b.done ? 1 : 0)) return (a.done ? 1 : 0) - (b.done ? 1 : 0); if (!a.date && !b.date) return 0; if (!a.date) return 1; if (!b.date) return -1; return a.date.localeCompare(b.date); });
+  const savePlan = () => {
+    if (!pForm.name.trim()) return;
+    const data = { name: pForm.name.trim(), date: pForm.date || "", allDay: !!pForm.allDay, hours: Number(pForm.hours) || 0, minutes: Number(pForm.minutes) || 0 };
+    if (pForm.id) setPlans((prev) => prev.map((x) => x.id === pForm.id ? { ...x, ...data } : x));
+    else setPlans((prev) => [...prev, { id: "p_" + Date.now(), done: false, ...data }]);
+    setPForm(emptyPlan); setShowPlan(false);
+  };
+  const togglePlanDone = (id) => setPlans((prev) => prev.map((p) => p.id === id ? { ...p, done: !p.done } : p));
+  const saveCourse = () => {
+    if (!cForm.name.trim() || cForm.days.length === 0) return;
+    setCourses((prev) => [...prev, { id: "c_" + Date.now(), name: cForm.name.trim(), minutes: Number(cForm.minutes) || 0, sessions: Number(cForm.sessions) || 0, start: cForm.start, days: cForm.days, done: [] }]);
+    setCForm(emptyCourse); setShowCourse(false);
+  };
+  const toggleDay = (i) => setCForm((p) => ({ ...p, days: p.days.includes(i) ? p.days.filter((x) => x !== i) : [...p.days, i].sort() }));
+  const toggleSession = (cid, idx) => setCourses((prev) => prev.map((c) => c.id === cid ? { ...c, done: (c.done || []).includes(idx) ? c.done.filter((i) => i !== idx) : [...(c.done || []), idx] } : c));
+  const isAllDay = (p) => p.allDay || p.period === "allday";
+  const durLabel = (p) => isAllDay(p) ? "ทั้งวัน" : [(p.hours ? p.hours + " ชม." : ""), (p.minutes ? p.minutes + " นาที" : "")].filter(Boolean).join(" ") || "—";
+  const inputCls = "w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-stone-400";
+
+  return (
+    <div className="space-y-6">
+      {/* plans */}
+      <div>
+        <div className="flex items-center justify-between mb-1 px-1">
+          <div className="flex items-center gap-2">
+            <CalendarDays size={18} className="text-stone-700" />
+            <h2 className="font-bold text-stone-900">แผน / กิจกรรมของฉัน</h2>
+          </div>
+          <button onClick={() => { setPForm(emptyPlan); setShowPlan(true); }} className="rounded-full px-3 py-1.5 text-sm font-medium bg-stone-900 text-white flex items-center gap-1"><Plus size={16} /> เพิ่ม</button>
+        </div>
+        <p className="text-xs text-stone-400 mb-3 px-1">อยากทำอะไร/ติดธุระวันไหน · “ทั้งวัน” = ไม่ว่าง ระบบจะข้ามวันนั้นให้ในคิวงาน</p>
+
+        {sorted.length === 0
+          ? <div className="rounded-2xl border border-dashed border-stone-200 p-6 text-center text-sm text-stone-400">ยังไม่มีแผน กดปุ่ม เพิ่ม</div>
+          : <div className="space-y-2">
+              {sorted.map((p) => (
+                <div key={p.id} className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3.5 py-2.5">
+                  <button onClick={() => togglePlanDone(p.id)} className={p.done ? "text-emerald-500 shrink-0" : "text-stone-300 shrink-0"}>{p.done ? <CheckCircle2 size={20} /> : <Circle size={20} />}</button>
+                  <div className="min-w-0 flex-1" onClick={() => { setPForm({ id: p.id, name: p.name, date: p.date || "", period: p.period || "allday", hours: p.hours || 0, minutes: p.minutes || 0 }); setShowPlan(true); }}>
+                    <div className={"font-medium text-sm truncate " + (p.done ? "line-through text-stone-400" : "text-stone-800")}>{p.name}</div>
+                    <div className="text-xs text-stone-500">{p.date ? THAI_DOW_FULL[new Date(p.date + "T00:00:00").getDay()] + " " + fmtThaiDate(p.date) : "ยังไม่ระบุวัน"}</div>
+                  </div>
+                  <span className={"text-[11px] rounded-full px-2 py-0.5 shrink-0 " + (isAllDay(p) && p.date ? "bg-amber-100 text-amber-700" : "bg-stone-100 text-stone-500")}>{durLabel(p)}</span>
+                  <button onClick={() => setPlans((prev) => prev.filter((x) => x.id !== p.id))} className="text-stone-300 hover:text-red-500 shrink-0"><X size={16} /></button>
+                </div>
+              ))}
+            </div>}
+      </div>
+
+      {/* courses */}
+      <div>
+        <div className="flex items-center justify-between mb-1 px-1">
+          <div className="flex items-center gap-2">
+            <Calendar size={18} className="text-stone-700" />
+            <h2 className="font-bold text-stone-900">คอร์สเรียน</h2>
+          </div>
+          <button onClick={() => { setCForm(emptyCourse); setShowCourse(true); }} className="rounded-full px-3 py-1.5 text-sm font-medium bg-stone-900 text-white flex items-center gap-1"><Plus size={16} /> เพิ่ม</button>
+        </div>
+        <p className="text-xs text-stone-400 mb-3 px-1">จัดวันเรียนให้ตามวันที่เลือก · ข้ามวันไม่ว่างอัตโนมัติ</p>
+
+        {courses.length > 0 && (
+          <div className="space-y-3">
+            {courses.map((c) => {
+              const sched = courseSchedule(c, blockedSet);
+              const totalMin = (Number(c.minutes) || 0) * (Number(c.sessions) || 0);
+              const light = (Number(c.minutes) || 0) > 0 && (Number(c.minutes) || 0) <= 45;
+              const done = c.done || [];
+              const doneCount = sched.filter((_, i) => done.includes(i)).length;
+              const allDone = sched.length > 0 && doneCount >= sched.length;
+              return (
+                <div key={c.id} className={"rounded-2xl border bg-white overflow-hidden " + (allDone ? "border-emerald-300" : "border-stone-200")}>
+                  <div className="flex items-start justify-between p-3.5 pb-2">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-stone-900">{c.name}</div>
+                      <div className="text-xs text-stone-500 mt-0.5">เรียนแล้ว {doneCount}/{sched.length} · ครั้งละ {c.minutes} นาที · {(c.days || []).map((d) => DOW_ABBR[d]).join(" ")}</div>
+                    </div>
+                    <button onClick={() => setCourses((prev) => prev.filter((x) => x.id !== c.id))} className="text-stone-300 hover:text-red-500 shrink-0"><X size={18} /></button>
+                  </div>
+                  {allDone && <div className="mx-3.5 mb-2 rounded-lg bg-emerald-50 text-emerald-700 text-xs px-2.5 py-1.5 flex items-center justify-between"><span>จบคอร์สแล้ว 🎉</span><button onClick={() => setCourses((prev) => prev.filter((x) => x.id !== c.id))} className="font-medium underline">ลบออก</button></div>}
+                  {light && !allDone && <div className="mx-3.5 mb-2 rounded-lg bg-emerald-50 text-emerald-700 text-xs px-2.5 py-1.5">แต่ละครั้งสั้น (~{c.minutes} นาที) แทรกช่วงกลางวัน/พักเที่ยงได้</div>}
+                  <div className="px-3.5 pb-3.5 space-y-1">
+                    {sched.map((iso, i) => {
+                      const d = done.includes(i);
+                      return (
+                        <button key={iso} onClick={() => toggleSession(c.id, i)} className="w-full flex items-center gap-2 text-sm text-left">
+                          <span className={d ? "text-emerald-500" : "text-stone-300"}>{d ? <CheckCircle2 size={20} /> : <Circle size={20} />}</span>
+                          <span className={"w-6 h-6 rounded-full text-xs flex items-center justify-center shrink-0 " + (d ? "bg-emerald-100 text-emerald-600" : "bg-stone-100 text-stone-500")}>{i + 1}</span>
+                          <span className={d ? "line-through text-stone-400" : "text-stone-700"}>{THAI_DOW_FULL[new Date(iso + "T00:00:00").getDay()]} {fmtThaiDate(iso)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* plan popup */}
+      {showPlan && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowPlan(false)} />
+          <div className="relative bg-white w-full max-w-sm rounded-3xl p-5 shadow-xl space-y-3">
+            <p className="font-bold text-stone-900">{pForm.id ? "แก้ไขแผน / กิจกรรม" : "เพิ่มแผน / กิจกรรม"}</p>
+            <input value={pForm.name} onChange={(e) => pset("name", e.target.value)} placeholder="ทำอะไร เช่น กลับบ้าน / ออกกำลังกาย / ดูคอร์ส" className={inputCls} />
+            <label className="block text-xs text-stone-500">วันไหน <span className="text-stone-400">(ไม่ระบุก็ได้)</span>
+              <input type="date" value={pForm.date} onChange={(e) => pset("date", e.target.value)} className={"mt-1 " + inputCls} /></label>
+            <div>
+              <div className="flex gap-2">
+                <button onClick={() => pset("allDay", false)} className={"flex-1 rounded-xl border py-2.5 text-sm font-medium " + (!pForm.allDay ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>ระบุเวลา</button>
+                <button onClick={() => pset("allDay", true)} className={"flex-1 rounded-xl border py-2.5 text-sm font-medium " + (pForm.allDay ? "bg-amber-500 text-white border-transparent" : "border-stone-200 text-stone-500")}>ทั้งวัน</button>
+              </div>
+              {pForm.allDay && <p className="text-[11px] text-amber-600 mt-1.5">* ถ้าระบุวันด้วย จะถือว่าไม่ว่างทั้งวัน — ระบบข้ามวันนั้นในคิวงานให้</p>}
+            </div>
+            {!pForm.allDay && (
+              <div>
+                <p className="text-xs text-stone-500 mb-1">ใช้เวลาทำ</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-xs text-stone-500">ชั่วโมง
+                    <input type="number" min="0" value={pForm.hours} onChange={(e) => pset("hours", e.target.value)} className={"mt-1 " + inputCls} /></label>
+                  <label className="text-xs text-stone-500">นาที
+                    <input type="number" min="0" step="5" value={pForm.minutes} onChange={(e) => pset("minutes", e.target.value)} className={"mt-1 " + inputCls} /></label>
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setShowPlan(false)} className="flex-1 rounded-xl border border-stone-200 py-2.5 text-sm text-stone-500">ยกเลิก</button>
+              <button onClick={savePlan} disabled={!pForm.name.trim()} className={"flex-1 rounded-xl py-2.5 text-sm font-medium text-white " + (pForm.name.trim() ? "bg-stone-900" : "bg-stone-300")}>บันทึก</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* course popup */}
+      {showCourse && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowCourse(false)} />
+          <div className="relative bg-white w-full max-w-sm rounded-3xl p-5 shadow-xl space-y-3">
+            <p className="font-bold text-stone-900">เพิ่มคอร์สเรียน</p>
+            <input value={cForm.name} onChange={(e) => cset("name", e.target.value)} placeholder="ชื่อคอร์ส เช่น คอร์สวาดดิจิทัล" className={inputCls} />
+            <div className="grid grid-cols-3 gap-2">
+              <label className="text-xs text-stone-500">นาที/ครั้ง
+                <input type="number" min="0" step="5" value={cForm.minutes} onChange={(e) => cset("minutes", e.target.value)} className={"mt-1 text-center " + inputCls} /></label>
+              <label className="text-xs text-stone-500">จำนวนครั้ง
+                <input type="number" min="1" value={cForm.sessions} onChange={(e) => cset("sessions", e.target.value)} className={"mt-1 text-center " + inputCls} /></label>
+              <label className="text-xs text-stone-500">เริ่มวันที่
+                <input type="date" value={cForm.start} onChange={(e) => cset("start", e.target.value)} className={"mt-1 " + inputCls} /></label>
+            </div>
+            <div>
+              <p className="text-xs text-stone-500 mb-1.5">เรียนวันไหนบ้าง</p>
+              <div className="flex gap-1.5">
+                {DOW_ABBR.map((d, i) => (
+                  <button key={i} onClick={() => toggleDay(i)} className={"flex-1 rounded-lg border py-2 text-sm " + (cForm.days.includes(i) ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>{d}</button>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setShowCourse(false)} className="flex-1 rounded-xl border border-stone-200 py-2.5 text-sm text-stone-500">ยกเลิก</button>
+              <button onClick={saveCourse} disabled={!cForm.name.trim() || cForm.days.length === 0} className={"flex-1 rounded-xl py-2.5 text-sm font-medium text-white " + (cForm.name.trim() && cForm.days.length ? "bg-stone-900" : "bg-stone-300")}>จัดตารางเรียน</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============ freelance rate card (แกะแบบ / ออกแบบใหม่) ============ */
+const STD_RUSH = [{ label: "ด่วน 3–5 วัน", add: 500, d: 5 }, { label: "ด่วนพิเศษ 1–2 วัน", add: 800, d: 2 }];
+const DEFAULT_DAYS = 7; // ทุกงานตีเป็น ~1 สัปดาห์ (ยกเว้น RSC ที่กำหนด d เอง)
+const EZMH = [{ label: "ง่าย", price: 500 }, { label: "กลาง", price: 1000 }, { label: "ยาก", price: 1500 }]; // ฉลาก/โลโก้
+const RATE_CARD = {
+  reverse: {
+    rsc: { label: "กล่อง RSC", days: "ปกติ 3–5 วัน",
+      options: [{ label: "มีตัวอย่างให้เทียบ", price: 1200, d: 5 }, { label: "มีภาพ / AI อ้างอิง", price: 1500, d: 5 }],
+      rush: [{ label: "ด่วน 1–2 วัน", add: 500, d: 2 }] },
+    diecut: { label: "กล่องไดคัท",
+      options: [{ label: "ไดคัทง่าย", price: 2000 }, { label: "ซับซ้อน / หลายชิ้น", price: 2500, plus: true }],
+      rush: STD_RUSH },
+    bag: { label: "ถุง", options: [{ label: "ง่าย", price: 1000 }, { label: "ยาก", price: 1500 }], rush: STD_RUSH },
+    label: { label: "ฉลาก", options: EZMH, rush: STD_RUSH },
+    logo: { label: "โลโก้", options: EZMH, rush: STD_RUSH },
+    other: { label: "อื่นๆ", custom: true },
+  },
+  newdesign: {
+    rsc: { label: "กล่อง RSC", tbd: true },
+    diecut: { label: "กล่องไดคัท", tbd: true },
+    logo: { label: "โลโก้", options: [{ label: "โลโก้ทั่วไป", price: 2000 }], rush: STD_RUSH },
+    ci: { label: "CI แบรนด์", options: [{ label: "แบรนด์ไอเดนติตี้", price: 5000 }], rush: STD_RUSH },
+    bag: { label: "ถุง", tbd: true },
+    label: { label: "ฉลาก", options: EZMH, rush: STD_RUSH },
+    other: { label: "อื่นๆ", custom: true },
+  },
+};
+const MODES = [{ k: "reverse", label: "แกะแบบ" }, { k: "newdesign", label: "ออกแบบใหม่" }];
+const CATS_BY_MODE = { reverse: ["rsc", "diecut", "bag", "label", "logo", "other"], newdesign: ["rsc", "diecut", "logo", "ci", "bag", "label", "other"] };
+
+// คำนวณราคา+จำนวนวันจากเรท (ใช้ได้ทั้งเครื่องคิดราคาและฟอร์มเพิ่มงาน)
+function computeRate(mode, cat, oi, ri, manual) {
+  const c = (RATE_CARD[mode] && RATE_CARD[mode][cat]) || RATE_CARD.reverse.rsc;
+  const hasOptions = !!c.options;
+  const opt = hasOptions ? c.options[oi] : null;
+  const rushList = hasOptions ? (c.rush || null) : STD_RUSH;
+  const rush = (rushList && ri >= 0) ? rushList[ri] : null;
+  const base = hasOptions ? (opt ? opt.price : null) : (Number(manual) > 0 ? Number(manual) : null);
+  const price = base != null ? base + (rush ? rush.add : 0) : null;
+  const days = rush ? rush.d : (hasOptions ? (opt && opt.d != null ? opt.d : DEFAULT_DAYS) : DEFAULT_DAYS);
+  return { price, days, hasOptions, opt, rush, rushList, c, plus: !!(opt && opt.plus) };
+}
+
+function FreelanceRateCalc() {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState("reverse");
+  const [cat, setCat] = useState("rsc");
+  const [oi, setOi] = useState(0);
+  const [ri, setRi] = useState(-1); // -1 = ไม่ด่วน
+  const [manual, setManual] = useState(""); // ราคาฐานกรอกเอง (ฉลาก/โลโก้แกะแบบ/อื่นๆ/ออกแบบใหม่ที่ยังไม่ตั้งเรท)
+  const cats = CATS_BY_MODE[mode];
+  const c = RATE_CARD[mode][cat] || RATE_CARD[mode][cats[0]];
+  const hasOptions = !!c.options;
+  const opt = hasOptions ? c.options[oi] : null;
+  const rushList = hasOptions ? (c.rush || null) : STD_RUSH; // ไม่มีเรทตายตัว → ใช้ด่วนมาตรฐาน
+  const rush = (rushList && ri >= 0) ? rushList[ri] : null;
+  const base = hasOptions ? (opt ? opt.price : null) : (Number(manual) > 0 ? Number(manual) : null);
+  const price = base != null ? base + (rush ? rush.add : 0) : null;
+  const timeline = rush ? rush.d : (hasOptions ? (opt && opt.d != null ? opt.d : DEFAULT_DAYS) : DEFAULT_DAYS);
+  const baht = (n) => n.toLocaleString("th-TH");
+  const pickMode = (m) => { setMode(m); setCat(CATS_BY_MODE[m][0]); setOi(0); setRi(-1); setManual(""); };
+  const pickCat = (k) => { setCat(k); setOi(0); setRi(-1); setManual(""); };
+
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-white overflow-hidden">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between p-3.5">
+        <span className="flex items-center gap-2 font-medium text-amber-600"><Calculator size={18} /> คิดราคารับงาน</span>
+        <span className="text-stone-400 text-sm">{open ? "ซ่อน" : "เปิด"}</span>
+      </button>
+
+      {open && (
+        <div className="px-3.5 pb-4 border-t border-stone-100 pt-3 space-y-3">
+          {/* mode */}
+          <div className="flex gap-2">
+            {MODES.map((m) => (
+              <button key={m.k} onClick={() => pickMode(m.k)}
+                className={"flex-1 rounded-xl border py-2 text-sm font-medium " + (mode === m.k ? "bg-amber-500 text-white border-transparent" : "border-stone-200 text-stone-500")}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-stone-400 -mt-1">{mode === "reverse" ? "มีกล่องตัวอย่าง/งานเก่า/ภาพ AI มาให้ → แกะแบบ" : "ต้องเสนอแบบให้เลือกก่อน แล้วแก้หลายรอบ (โต้กลับเยอะ)"}</p>
+
+          {/* category */}
+          <div className="flex flex-wrap gap-2">
+            {cats.map((k) => (
+              <button key={k} onClick={() => pickCat(k)}
+                className={"rounded-lg border px-3 py-1.5 text-sm " + (cat === k ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>
+                {RATE_CARD[mode][k].label}
+              </button>
+            ))}
+          </div>
+
+          <p className="text-xs text-stone-400">{c.days || "ปกติ ~1 สัปดาห์"}</p>
+
+          {hasOptions ? (
+            <div>
+              <p className="text-xs text-stone-500 mb-1.5">เงื่อนไขงาน</p>
+              <div className="space-y-2">
+                {c.options.map((o, i) => (
+                  <button key={i} onClick={() => setOi(i)}
+                    className={"w-full flex items-center justify-between rounded-xl border p-3 text-left transition " + (oi === i ? "border-amber-400 bg-amber-50" : "border-stone-200")}>
+                    <span className="text-sm text-stone-700">{o.label}</span>
+                    <span className="text-sm font-semibold text-amber-700">{baht(o.price) + (o.plus ? "+" : "")}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p className="text-xs text-stone-500 mb-1.5">ราคาฐาน (คิดตามงาน)</p>
+              <div className="flex items-center gap-2">
+                <input type="number" min="0" step="100" value={manual} onChange={(e) => setManual(e.target.value)} placeholder="เช่น 1500"
+                  className="w-28 rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                <span className="text-sm text-stone-400">บาท</span>
+              </div>
+            </div>
+          )}
+
+          {/* rush */}
+          {rushList && (
+            <div>
+              <p className="text-xs text-stone-500 mb-1.5">งานด่วน</p>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => setRi(-1)}
+                  className={"rounded-lg border px-3 py-1.5 text-sm " + (ri === -1 ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>ไม่ด่วน</button>
+                {rushList.map((rr, i) => (
+                  <button key={i} onClick={() => setRi(i)}
+                    className={"rounded-lg border px-3 py-1.5 text-sm " + (ri === i ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>
+                    {rr.label} +{rr.add}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* result */}
+          {price != null ? (
+            <div className="rounded-xl bg-amber-50 p-3">
+              <div className="text-2xl font-bold text-amber-700 leading-none">≈ {baht(price)}{opt && opt.plus ? "+" : ""} บาท{timeline ? <span className="text-sm font-normal text-amber-600"> · ~{timeline} วัน</span> : null}</div>
+              <div className="text-xs text-amber-600/80 mt-1">
+                {baht(base)}{opt && opt.plus ? "+" : ""}{rush ? " + ด่วน " + rush.add + " (" + rush.label + ")" : ""}
+              </div>
+              {opt && opt.plus && <div className="text-[11px] text-amber-600/80 mt-0.5">ราคาเริ่มต้น เพิ่มตามความซับซ้อน/จำนวนชิ้น</div>}
+            </div>
+          ) : (
+            <p className="text-xs text-stone-400">ใส่ราคาฐานเพื่อคำนวณ (แล้วเลือกด่วนได้)</p>
+          )}
+
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 flex gap-2">
+            <AlertTriangle size={16} className="text-rose-500 shrink-0 mt-0.5" />
+            <p className="text-xs text-rose-700">เช็กดีเทลงานให้ครบก่อนเคาะราคา — ถ้าจริง ๆ ดีเทลเยอะกว่าที่ลูกค้าบอก ปรับราคาขึ้นได้เลย อย่ายึดราคาแรกที่คุยตอนโจทย์ยังไม่ชัด</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ title, sub }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-stone-300 bg-white p-8 text-center">
+      <Sparkles size={28} className="mx-auto text-stone-300 mb-3" />
+      <p className="font-semibold text-stone-700">{title}</p>
+      <p className="text-sm text-stone-400 mt-1">{sub}</p>
+    </div>
+  );
+}
+
+/* ============ modal ============ */
+function TaskModal({ seed, onClose, onSave, onRemove }) {
+  const isNew = !!seed.new;
+  const [job, setJob] = useState(seed.job);
+  const [f, setF] = useState(() => {
+    const init = isNew
+      ? { title: seed.title || "", client: seed.client || "", stage: STAGES[seed.job][0].key, ball: "me", waitOn: WAIT_BY_JOB[seed.job][0], deadline: seed.deadline || (seed.job === 3 ? addDays(3) : ""), rush: false, priceConfirmed: false, orderType: "normal", size: "normal", needFile: false, estHours: seed.job === 3 ? 0.5 : 4, notes: "", type: seed.type || "Bucket", owner: seed.owner || "P'B", phase: seed.phase || "", priority: seed.priority || "M", status: "notset", assignedDate: seed.job === 1 ? addDays(0) : "", linkedFrom: seed.linkedFrom || null, linkedFromTitle: seed.linkedFromTitle || "", step: seed.step || "", price: seed.price || "", channel: seed.channel || "Fastwork", paid: seed.paid ?? ((seed.channel || "Fastwork") !== "ส่วนตัว"), rmode: seed.rmode || "reverse", rcat: seed.rcat || "rsc", ropt: seed.ropt ?? 0, rrush: seed.rrush ?? -1, rmanual: seed.rmanual || "" }
+      : { title: seed.title || "", client: seed.client || "", stage: seed.stage, ball: seed.ball || "me", waitOn: seed.waitOn || WAIT_BY_JOB[seed.job][0], deadline: seed.deadline || "", rush: !!seed.rush, priceConfirmed: !!seed.priceConfirmed, orderType: seed.orderType || "normal", size: seed.size || "normal", needFile: !!seed.needFile, estHours: seed.estHours ?? (seed.job === 3 ? 0.5 : 4), notes: seed.notes || "", type: seed.type || "Bucket", owner: seed.owner || "P'B", phase: seed.phase || "", priority: seed.priority || "M", status: seed.status || "notset", assignedDate: seed.assignedDate || "", linkedFrom: seed.linkedFrom || null, linkedFromTitle: seed.linkedFromTitle || "", step: seed.step || "", price: seed.price ?? "", channel: seed.channel || "Fastwork", paid: seed.paid ?? ((seed.channel || "Fastwork") !== "ส่วนตัว"), rmode: seed.rmode || "reverse", rcat: seed.rcat || "rsc", ropt: seed.ropt ?? 0, rrush: seed.rrush ?? -1, rmanual: seed.rmanual || "" };
+    if (isNew && seed.job === 2) {
+      const r = computeRate(init.rmode, init.rcat, init.ropt, init.rrush, init.rmanual);
+      if (r.price != null && (seed.price == null || seed.price === "")) init.price = r.price;
+      if (!seed.deadline) init.deadline = addDays(r.days);
+    }
+    return init;
+  });
+  const a = A[JOBS[job].accent];
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const [otherStep, setOtherStep] = useState(() => { const s = seed.step || ""; return !!s && !FL_STEPS.includes(s); });
+  const [otherType, setOtherType] = useState(() => { const t = seed.type; return !!t && !IG_TYPES.includes(t); });
+  const setChannel = (c) => setF((p) => ({ ...p, channel: c, paid: c === "Fastwork" ? true : (p.channel === c ? p.paid : false) }));
+  const applyRate = (patch) => setF((p) => {
+    const n = { ...p, ...patch };
+    const r = computeRate(n.rmode, n.rcat, n.ropt, n.rrush, n.rmanual);
+    if (r.price != null) n.price = r.price;
+    n.deadline = addDays(r.days);
+    return n;
+  });
+  const changeJob = (j) => { setJob(j); set("stage", STAGES[j][0].key); set("waitOn", WAIT_BY_JOB[j][0]); };
+  const recompute = (p) => estJob3(p);
+  const baht = (n) => Number(n || 0).toLocaleString("th-TH");
+  const rcObj = job === 2 ? (RATE_CARD[f.rmode][f.rcat] || RATE_CARD.reverse.rsc) : null;
+  const rate = job === 2 ? computeRate(f.rmode, f.rcat, f.ropt, f.rrush, f.rmanual) : null;
+  const isContinue = !!f.linkedFrom;
+  const setFulfil = (v) => setF((p) => { const np = { ...p, orderType: v, deadline: addDays(v === "preorder" ? 7 : 3) }; return { ...np, estHours: recompute(np) }; });
+  const setSize = (v) => setF((p) => { const np = { ...p, size: v }; return { ...np, estHours: recompute(np) }; });
+  const toggleNeedFile = () => setF((p) => { const np = { ...p, needFile: !p.needFile }; return { ...np, estHours: recompute(np) }; });
+
+  const save = () => {
+    if (!f.title.trim()) return;
+    onSave({
+      id: isNew ? "t_" + Date.now() : seed.id,
+      job, title: f.title.trim(), client: f.client.trim(),
+      stage: f.stage, ball: job === 3 ? "me" : f.ball, waitOn: f.waitOn,
+      waitSince: (job !== 3 && f.ball === "wait") ? (seed.waitSince || Date.now()) : null,
+      lastFollowUp: seed.lastFollowUp || null,
+      deadline: f.deadline || null, rush: f.rush,
+      orderType: f.orderType, size: f.size, needFile: f.needFile,
+      priceConfirmed: f.priceConfirmed, estHours: Number(f.estHours) || 0, notes: f.notes,
+      type: f.type, owner: f.owner, phase: f.phase, priority: f.priority,
+      status: isNew ? "notset" : (seed.status || "notset"), assignedDate: f.assignedDate || null,
+      linkedFrom: f.linkedFrom || null, linkedFromTitle: f.linkedFromTitle || "",
+      step: f.step || "", price: f.price === "" ? "" : (Number(f.price) || ""),
+      channel: f.channel || "Fastwork", paid: !!f.paid,
+      rmode: f.rmode, rcat: f.rcat, ropt: f.ropt, rrush: f.rrush, rmanual: f.rmanual,
+      createdAt: isNew ? Date.now() : seed.createdAt, updatedAt: Date.now(),
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-3 sm:p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white w-full max-w-lg rounded-3xl max-h-full overflow-y-auto shadow-xl">
+        <div className="sticky top-0 bg-white px-5 py-4 flex items-center justify-between border-b border-stone-100">
+          <h3 className="font-bold text-stone-900">{(isNew ? "เพิ่มงานใหม่" : "แก้ไขงาน") + (seed.pick ? "" : " · " + JOBS[job].name)}</h3>
+          <button onClick={onClose} className="text-stone-400"><X size={22} /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {f.linkedFrom && (
+            <div className="rounded-xl bg-sky-50 border border-sky-200 p-3 text-sm text-sky-700">
+              🔗 งานต่อเนื่องจาก: <span className="font-medium">{f.linkedFromTitle}</span>
+              <span className="block text-xs text-sky-600/90 mt-1">
+                {job === 1
+                  ? [f.type, f.owner, f.priority && ("Priority " + f.priority)].filter(Boolean).join(" · ")
+                  : [f.client, f.channel, f.price && ("฿" + Number(f.price).toLocaleString("th-TH"))].filter(Boolean).join(" · ")}
+              </span>
+              <span className="block text-xs text-sky-600/70 mt-0.5">เลือกแค่ขั้นตอนถัดไป + กำหนดส่ง + โน้ต</span>
+            </div>
+          )}
+          {seed.pick && (
+          <div className="grid grid-cols-3 gap-2">
+            {[1, 2, 3].map((j) => {
+              const on = job === j; const ja = A[JOBS[j].accent];
+              return (
+                <button key={j} onClick={() => changeJob(j)}
+                  className={"rounded-xl border py-2 text-sm font-medium transition " + (on ? ja.bg + " text-white border-transparent" : "border-stone-200 text-stone-500")}>
+                  {JOBS[j].name}
+                </button>
+              );
+            })}
+          </div>
+          )}
+
+          {!isContinue && (
+          <Field label={job === 3 ? "รหัสออร์เดอร์" : "ชื่องาน"}>
+            <input autoFocus value={f.title} onChange={(e) => set("title", e.target.value)}
+              placeholder={job === 3 ? "ก๊อปเลขคำสั่งซื้อมาแปะ" : "เช่น กล่องพรีเมียม Sanrio x Lotus's"}
+              className="w-full rounded-xl border border-stone-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-stone-400" />
+          </Field>
+          )}
+
+          {job === 1 && !isContinue && (
+            <>
+              <Field label="ประเภท (Type)">
+                <div className="flex flex-wrap gap-2">
+                  {IG_TYPES.map((x) => (
+                    <button key={x} onClick={() => { setOtherType(false); set("type", x); }}
+                      className={"rounded-lg border px-3 py-1.5 text-sm " + (!otherType && f.type === x ? "bg-indigo-600 text-white border-transparent" : "border-stone-200 text-stone-500")}>{x}</button>
+                  ))}
+                  <button onClick={() => { setOtherType(true); set("type", ""); }}
+                    className={"rounded-lg border px-3 py-1.5 text-sm " + (otherType ? "bg-indigo-600 text-white border-transparent" : "border-stone-200 text-stone-500")}>อื่นๆ</button>
+                </div>
+                {otherType && (
+                  <input value={f.type} onChange={(e) => set("type", e.target.value)} placeholder="พิมพ์ชนิดงานเอง"
+                    className="mt-2 w-full rounded-xl border border-stone-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                )}
+              </Field>
+              <Field label="ผู้รับผิดชอบ (Owner)">
+                <div className="flex flex-wrap gap-2">
+                  {IG_OWNERS.map((x) => (
+                    <button key={x} onClick={() => set("owner", x)}
+                      className={"rounded-lg border px-3 py-1.5 text-sm " + (f.owner === x ? "bg-indigo-600 text-white border-transparent" : "border-stone-200 text-stone-500")}>{x}</button>
+                  ))}
+                </div>
+              </Field>
+            </>
+          )}
+          {job === 1 && (
+              <Field label="Phase (เลือกได้ ไม่ต้องเรียงลำดับ · แตะซ้ำเพื่อเอาออก)">
+                <div className="flex flex-wrap gap-2">
+                  {IG_PHASES.map((x) => (
+                    <button key={x} onClick={() => set("phase", f.phase === x ? "" : x)}
+                      className={"rounded-lg border px-3 py-1.5 text-sm " + (f.phase === x ? "bg-violet-600 text-white border-transparent" : "border-stone-200 text-stone-500")}>{x}</button>
+                  ))}
+                </div>
+              </Field>
+          )}
+          {job === 1 && !isContinue && (
+              <Field label="ความสำคัญ (Priority)">
+                <div className="flex gap-2">
+                  {["H", "M", "L"].map((x) => (
+                    <button key={x} onClick={() => set("priority", x)}
+                      className={"flex-1 rounded-xl border py-2.5 text-sm font-medium inline-flex items-center justify-center gap-1.5 " + (f.priority === x ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>
+                      <span className={"w-2 h-2 rounded-full " + IG_PRIO[x].dot} />{x}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+          )}
+
+          {job === 2 && !isContinue && (
+          <Field label="ลูกค้า">
+            <input value={f.client} onChange={(e) => set("client", e.target.value)}
+              placeholder="ชื่อลูกค้า"
+              className="w-full rounded-xl border border-stone-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-stone-400" />
+          </Field>
+          )}
+
+          {job === 2 && !isContinue && (
+          <Field label="ช่องทาง">
+            <div className="flex gap-2">
+              {FL_CHANNELS.map((c) => (
+                <button key={c} onClick={() => setChannel(c)}
+                  className={"flex-1 rounded-xl border py-2.5 text-sm font-medium " + (f.channel === c ? "bg-amber-500 text-white border-transparent" : "border-stone-200 text-stone-500")}>{c}</button>
+              ))}
+            </div>
+          </Field>
+          )}
+
+          {job === 2 && !isContinue && f.channel === "ส่วนตัว" && (
+            <button onClick={() => set("paid", !f.paid)}
+              className={"w-full flex items-center gap-3 rounded-xl border p-3 text-left transition " + (f.paid ? "border-emerald-300 bg-emerald-50" : "border-rose-300 bg-rose-50")}>
+              <span className={f.paid ? "text-emerald-600" : "text-rose-500"}>{f.paid ? <CheckCircle2 size={22} /> : <AlertTriangle size={22} />}</span>
+              <span className="text-sm">
+                <span className="font-medium text-stone-800 block">{f.paid ? "จ่ายแล้ว" : "ยังไม่จ่าย"}</span>
+                <span className="text-xs text-stone-500">งานส่วนตัวจ่ายทีหลัง — แตะเมื่อได้เงินแล้ว</span>
+              </span>
+            </button>
+          )}
+
+          {job === 2 && !isContinue && (
+          <Field label="ประเภทงาน (ดึงราคา + กำหนดส่งอัตโนมัติ)">
+            <div className="flex gap-2 mb-2">
+              {MODES.map((m) => (
+                <button key={m.k} onClick={() => applyRate({ rmode: m.k, rcat: CATS_BY_MODE[m.k][0], ropt: 0, rrush: -1, rmanual: "" })}
+                  className={"flex-1 rounded-xl border py-2 text-sm font-medium " + (f.rmode === m.k ? "bg-amber-500 text-white border-transparent" : "border-stone-200 text-stone-500")}>{m.label}</button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {CATS_BY_MODE[f.rmode].map((k) => (
+                <button key={k} onClick={() => applyRate({ rcat: k, ropt: 0, rrush: -1, rmanual: "" })}
+                  className={"rounded-lg border px-3 py-1.5 text-sm " + (f.rcat === k ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>{RATE_CARD[f.rmode][k].label}</button>
+              ))}
+            </div>
+            {rcObj.options ? (
+              <div className="space-y-2 mb-2">
+                {rcObj.options.map((o, i) => (
+                  <button key={i} onClick={() => applyRate({ ropt: i })}
+                    className={"w-full flex items-center justify-between rounded-xl border p-2.5 text-left " + (f.ropt === i ? "border-amber-400 bg-amber-50" : "border-stone-200")}>
+                    <span className="text-sm text-stone-700">{o.label}</span>
+                    <span className="text-sm font-semibold text-amber-700">{o.price != null ? baht(o.price) + (o.plus ? "+" : "") : "—"}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <input type="number" min="0" value={f.rmanual} onChange={(e) => applyRate({ rmanual: e.target.value })} placeholder="ราคาฐาน (คิดตามงาน)"
+                className="w-full mb-2 rounded-xl border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => applyRate({ rrush: -1 })}
+                className={"rounded-lg border px-3 py-1.5 text-sm " + (f.rrush === -1 ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>ไม่ด่วน</button>
+              {(rcObj.options ? (rcObj.rush || []) : STD_RUSH).map((rr, i) => (
+                <button key={i} onClick={() => applyRate({ rrush: i })}
+                  className={"rounded-lg border px-3 py-1.5 text-sm " + (f.rrush === i ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>{rr.label} +{rr.add}</button>
+              ))}
+            </div>
+            <div className="mt-2 rounded-xl bg-amber-50 p-2.5 text-sm text-amber-700">
+              {rate.price != null ? <span>≈ <span className="font-bold">{baht(rate.price)}{rate.plus ? "+" : ""}</span> บาท · กำหนดส่ง ~{rate.days} วัน</span> : "ใส่ราคาฐานเพื่อคำนวณ"}
+            </div>
+          </Field>
+          )}
+
+          {job === 2 && (
+          <Field label="ขั้นตอนนี้">
+            <div className="flex flex-wrap gap-2">
+              {FL_STEPS.map((s) => {
+                const isOther = s === "อื่นๆ";
+                const active = isOther ? otherStep : (!otherStep && f.step === s);
+                return (
+                  <button key={s} onClick={() => { if (isOther) { setOtherStep(true); set("step", ""); } else { setOtherStep(false); set("step", s); } }}
+                    className={"rounded-lg border px-3 py-1.5 text-sm " + (active ? "bg-amber-500 text-white border-transparent" : "border-stone-200 text-stone-500")}>{s}</button>
+                );
+              })}
+            </div>
+            {otherStep && (
+              <input value={f.step} onChange={(e) => set("step", e.target.value)} placeholder="พิมพ์ขั้นตอนเอง"
+                className="mt-2 w-full rounded-xl border border-stone-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+            )}
+          </Field>
+          )}
+
+          {job === 2 && !isContinue && (
+          <Field label="ราคา (บาท)">
+            <input type="number" min="0" value={f.price} onChange={(e) => set("price", e.target.value)}
+              placeholder="เช่น 1500"
+              className="w-full rounded-xl border border-stone-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-stone-400" />
+          </Field>
+          )}
+
+          {job === 3 && (
+            <Field label="ประเภท (กำหนดส่ง)">
+              <div className="flex gap-2">
+                <button onClick={() => setFulfil("normal")}
+                  className={"flex-1 rounded-xl border py-2.5 text-sm font-medium " + (f.orderType !== "preorder" ? "bg-teal-600 text-white border-transparent" : "border-stone-200 text-stone-500")}>
+                  สินค้าทั่วไป · 3 วัน
+                </button>
+                <button onClick={() => setFulfil("preorder")}
+                  className={"flex-1 rounded-xl border py-2.5 text-sm font-medium " + (f.orderType === "preorder" ? "bg-teal-600 text-white border-transparent" : "border-stone-200 text-stone-500")}>
+                  พรีออเดอร์ · 7 วัน
+                </button>
+              </div>
+            </Field>
+          )}
+
+          {job === 3 && (
+            <Field label="ขนาดล็อต (ใช้กะเวลา)">
+              <div className="flex gap-2">
+                <button onClick={() => setSize("normal")}
+                  className={"flex-1 rounded-xl border py-2.5 text-sm font-medium " + (f.size !== "big" ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>
+                  ธรรมดา · ~30 นาที
+                </button>
+                <button onClick={() => setSize("big")}
+                  className={"flex-1 rounded-xl border py-2.5 text-sm font-medium " + (f.size === "big" ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")}>
+                  ใหญ่ · ~1 ชม.
+                </button>
+              </div>
+            </Field>
+          )}
+
+          {job === 3 && (
+            <button onClick={toggleNeedFile}
+              className={"w-full flex items-center gap-3 rounded-xl border p-3 text-left transition " + (f.needFile ? "border-amber-300 bg-amber-50" : "border-stone-200")}>
+              <span className={f.needFile ? "text-amber-600" : "text-stone-300"}>{f.needFile ? <CheckCircle2 size={22} /> : <AlertTriangle size={22} />}</span>
+              <span className="text-sm">
+                <span className="font-medium text-stone-800 block">ต้องเตรียมไฟล์ให้ลูกค้า</span>
+                <span className="text-xs text-stone-500">เผื่อเวลาทำไฟล์เพิ่มอีก ~{FILE_PREP_HR} ชม.</span>
+              </span>
+            </button>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="กำหนดส่ง">
+              <input type="date" value={f.deadline || ""} onChange={(e) => set("deadline", e.target.value)}
+                className="w-full rounded-xl border border-stone-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-stone-400" />
+            </Field>
+            {job === 3 && (
+              <Field label="ชั่วโมงที่คาดว่าใช้">
+                <input type="number" step="0.5" min="0" value={f.estHours} onChange={(e) => set("estHours", e.target.value)}
+                  className="w-full rounded-xl border border-stone-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-stone-400" />
+              </Field>
+            )}
+            {job === 1 && !isContinue && (
+              <Field label="วันที่ได้รับงาน">
+                <input type="date" value={f.assignedDate || ""} onChange={(e) => set("assignedDate", e.target.value)}
+                  className="w-full rounded-xl border border-stone-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-stone-400" />
+              </Field>
+            )}
+          </div>
+
+          <Field label="โน้ต">
+            <textarea value={f.notes} onChange={(e) => set("notes", e.target.value)} rows={2} placeholder="รายละเอียดเพิ่มเติม…"
+              className="w-full rounded-xl border border-stone-300 px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-stone-400" />
+          </Field>
+        </div>
+
+        <div className="sticky bottom-0 bg-white px-5 py-4 border-t border-stone-100 flex items-center gap-3">
+          {!isNew && <button onClick={() => { onRemove(seed.id); onClose(); }} className="p-2.5 rounded-xl text-red-500 hover:bg-red-50"><Trash2 size={20} /></button>}
+          <button onClick={save} disabled={!f.title.trim()}
+            className={"flex-1 rounded-xl py-3 font-semibold text-white transition " + (f.title.trim() ? a.bg : "bg-stone-300")}>
+            {isNew ? "เพิ่มงาน" : "บันทึก"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return <div><label className="block text-xs font-medium text-stone-500 mb-1.5">{label}</label>{children}</div>;
+}
+
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>
