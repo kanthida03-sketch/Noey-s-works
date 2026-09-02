@@ -4,8 +4,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
 <title>ศูนย์รวมงานของเนย</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.development.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.383.0/lucide.min.js"></script>
 <style>body{-webkit-tap-highlight-color:transparent;} ::-webkit-scrollbar{display:none;}</style>
@@ -51,29 +51,68 @@ function _mkIcon(node) {
   };
 }
 var _L = window.lucide && (window.lucide.icons || window.lucide) || {};
-var Plus = _mkIcon(_L["Plus"]);
-var X = _mkIcon(_L["X"]);
-var Trash2 = _mkIcon(_L["Trash2"]);
-var Calendar = _mkIcon(_L["Calendar"]);
-var Home = _mkIcon(_L["Home"]);
-var Briefcase = _mkIcon(_L["Briefcase"]);
-var Package = _mkIcon(_L["Package"]);
-var Tag = _mkIcon(_L["Tag"]);
-var Gauge = _mkIcon(_L["Gauge"]);
-var AlertTriangle = _mkIcon(_L["AlertTriangle"]);
-var CheckCircle2 = _mkIcon(_L["CheckCircle2"]);
-var Circle = _mkIcon(_L["Circle"]);
-var User = _mkIcon(_L["User"]);
-var ArrowRight = _mkIcon(_L["ArrowRight"]);
-var Sparkles = _mkIcon(_L["Sparkles"]);
-var Bell = _mkIcon(_L["Bell"]);
-var Hand = _mkIcon(_L["Hand"]);
-var Hourglass = _mkIcon(_L["Hourglass"]);
-var Calculator = _mkIcon(_L["Calculator"]);
-var CalendarDays = _mkIcon(_L["CalendarDays"]);
-var Star = _mkIcon(_L["Star"]);
-var Download = _mkIcon(_L["Download"]);
-var Pencil = _mkIcon(_L["Pencil"]);
+function _icon(n) {
+  return _L[n] || _L[n.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase()] || _L[n.toLowerCase()];
+}
+var Plus = _mkIcon(_icon("Plus"));
+var X = _mkIcon(_icon("X"));
+var Trash2 = _mkIcon(_icon("Trash2"));
+var Calendar = _mkIcon(_icon("Calendar"));
+var Home = _mkIcon(_icon("Home"));
+var Briefcase = _mkIcon(_icon("Briefcase"));
+var Package = _mkIcon(_icon("Package"));
+var Tag = _mkIcon(_icon("Tag"));
+var Gauge = _mkIcon(_icon("Gauge"));
+var AlertTriangle = _mkIcon(_icon("AlertTriangle"));
+var CheckCircle2 = _mkIcon(_icon("CheckCircle2"));
+var Circle = _mkIcon(_icon("Circle"));
+var User = _mkIcon(_icon("User"));
+var ArrowRight = _mkIcon(_icon("ArrowRight"));
+var Sparkles = _mkIcon(_icon("Sparkles"));
+var Bell = _mkIcon(_icon("Bell"));
+var Hand = _mkIcon(_icon("Hand"));
+var Hourglass = _mkIcon(_icon("Hourglass"));
+var Calculator = _mkIcon(_icon("Calculator"));
+var CalendarDays = _mkIcon(_icon("CalendarDays"));
+var Star = _mkIcon(_icon("Star"));
+var Download = _mkIcon(_icon("Download"));
+var Pencil = _mkIcon(_icon("Pencil"));
+class __ErrB extends __R.Component {
+  constructor(p) {
+    super(p);
+    this.state = {
+      err: null,
+      info: null
+    };
+  }
+  static getDerivedStateFromError(e) {
+    return {
+      err: e
+    };
+  }
+  componentDidCatch(e, info) {
+    this.setState({
+      err: e,
+      info: info
+    });
+  }
+  render() {
+    if (this.state.err) {
+      var msg = this.state.err && (this.state.err.stack || this.state.err.message) || String(this.state.err);
+      var cs = this.state.info && this.state.info.componentStack || "";
+      return __R.createElement("pre", {
+        style: {
+          padding: "16px",
+          color: "#b91c1c",
+          whiteSpace: "pre-wrap",
+          fontSize: "12px",
+          fontFamily: "monospace"
+        }
+      }, "⚠ แอปพัง:\n\n" + msg + "\n\n" + cs);
+    }
+    return this.props.children;
+  }
+}
 
 /* ============ config ============ */
 const JOBS = {
@@ -688,6 +727,7 @@ function Overview({
 }) {
   const [tune, setTune] = useState(false);
   const [editItem, setEditItem] = useState(null); // { id, name } กำลังแก้เวลา
+  const [dayOffset, setDayOffset] = useState(0); // เลื่อนดูตารางแต่ละวัน
   const blockedSet = new Set((blocks || []).map(b => b.date));
   const wkd = settings.weekdayHrs ?? 2.5;
   const wke = settings.weekendHrs ?? 5;
@@ -699,7 +739,7 @@ function Overview({
   const day = planner[todayIso] || {};
   const durMap = day.dur || {};
   const defaultDur = t => t.job === 3 ? Math.max(30, Math.round((Number(t.estHours) || 0.5) * 60)) : 60;
-  const sideTasks = active.filter(t => t.job === 2 || t.job === 3);
+  const sideTasks = active.filter(t => t.job === 2 && t.status !== "followup" || t.job === 3);
   const sideHours = Math.round(sideTasks.reduce((s, t) => s + (durMap[t.id] || defaultDur(t)), 0) / 60 * 10) / 10;
   const actDeduct = iso => (plans || []).filter(p => p.date === iso && !p.done && !(p.allDay || p.period === "allday")).reduce((s, p) => {
     const min = (Number(p.hours) || 0) * 60 + (Number(p.minutes) || 0);
@@ -783,8 +823,13 @@ function Overview({
   const subLabel = t => t.job === 1 ? t.phase || "" : t.job === 2 ? t.step || "" : "";
 
   // ---- daily planner (30-min, zone-aware, items = งาน+กิจกรรม+คอร์ส) ----
-  const notes = day.notes || {};
-  const startAt = day.startAt || {};
+  const viewIso = addDays(dayOffset);
+  const viewDate = new Date(viewIso + "T00:00:00");
+  const isToday = dayOffset === 0;
+  const vday = planner[viewIso] || {};
+  const vdurMap = vday.dur || {};
+  const notes = vday.notes || {};
+  const startAt = vday.startAt || {};
   const SLOTS = 38; // 05:00 .. 23:30
   const slotHour = i => 5 + Math.floor(i / 2);
   const slotTime = i => slotHour(i) + i % 2 * 0.5;
@@ -811,49 +856,51 @@ function Overview({
     return (h - 5) * 2 + (m >= 30 ? 1 : 0);
   };
 
-  // สร้างรายการทั้งหมดของวันนี้ (งานบริษัท·ฟรีแลนซ์·ร้าน·กิจกรรม·คอร์ส)
+  // สร้างรายการของวันที่ดูอยู่ (งานค้าง=เฉพาะวันนี้ · กิจกรรม/คอร์ส=ตามวันจริง)
   const items = [];
-  active.filter(t => t.job === 1 && t.status === "inprogress").forEach(t => items.push({
-    id: t.id,
-    name: t.title + (t.phase ? " · " + t.phase : ""),
-    group: "ignite",
-    color: 1,
-    dur: durMap[t.id] || 60
-  }));
-  active.filter(t => t.job === 2 && t.status === "inprogress").forEach(t => items.push({
-    id: t.id,
-    name: t.title + (t.step ? " · " + t.step : ""),
-    group: "side",
-    color: 2,
-    dur: durMap[t.id] || 60
-  }));
-  active.filter(t => t.job === 3).forEach(t => items.push({
-    id: t.id,
-    name: t.title,
-    group: "side",
-    color: 3,
-    dur: durMap[t.id] || Math.max(30, Math.round((Number(t.estHours) || 0.5) * 60))
-  }));
-  (plans || []).filter(p => p.date === todayIso && !p.done && !(p.allDay || p.period === "allday")).forEach(p => items.push({
+  if (isToday) {
+    active.filter(t => t.job === 1 && t.status === "inprogress").forEach(t => items.push({
+      id: t.id,
+      name: t.title + (t.phase ? " · " + t.phase : ""),
+      group: "ignite",
+      color: 1,
+      dur: vdurMap[t.id] || 60
+    }));
+    active.filter(t => t.job === 2 && t.status === "inprogress").forEach(t => items.push({
+      id: t.id,
+      name: t.title + (t.step ? " · " + t.step : ""),
+      group: "side",
+      color: 2,
+      dur: vdurMap[t.id] || 60
+    }));
+    active.filter(t => t.job === 3).forEach(t => items.push({
+      id: t.id,
+      name: t.title,
+      group: "side",
+      color: 3,
+      dur: vdurMap[t.id] || Math.max(30, Math.round((Number(t.estHours) || 0.5) * 60))
+    }));
+  }
+  (plans || []).filter(p => p.date === viewIso && !p.done && !(p.allDay || p.period === "allday")).forEach(p => items.push({
     id: p.id,
     name: p.name,
     group: "side",
     color: "act",
-    dur: durMap[p.id] || (Number(p.hours) || 0) * 60 + (Number(p.minutes) || 0) || 30
+    dur: vdurMap[p.id] || (Number(p.hours) || 0) * 60 + (Number(p.minutes) || 0) || 30
   }));
   (courses || []).forEach(c => {
     const sc = courseSchedule(c, blockedSet);
-    const k = sc.indexOf(todayIso);
+    const k = sc.indexOf(viewIso);
     if (k >= 0 && !(c.done || []).includes(k)) items.push({
       id: "course_" + c.id,
       name: "คอร์ส: " + c.name,
       group: "side",
       color: "course",
-      dur: durMap["course_" + c.id] || Number(c.minutes) || 30
+      dur: vdurMap["course_" + c.id] || Number(c.minutes) || 30
     });
   });
   const itemIds = items.map(x => x.id);
-  const order = (day.order || []).filter(id => itemIds.includes(id));
+  const order = (vday.order || []).filter(id => itemIds.includes(id));
   items.forEach(x => {
     if (!order.includes(x.id)) order.push(x.id);
   });
@@ -913,8 +960,8 @@ function Overview({
   autoPack("ignite");
   const updateDay = patch => setPlanner(prev => ({
     ...prev,
-    [todayIso]: {
-      ...(prev[todayIso] || {}),
+    [viewIso]: {
+      ...(prev[viewIso] || {}),
       ...patch
     }
   }));
@@ -937,7 +984,7 @@ function Overview({
   };
   const setDur = (id, m) => updateDay({
     dur: {
-      ...durMap,
+      ...vdurMap,
       [id]: m
     }
   });
@@ -1058,14 +1105,25 @@ function Overview({
     }),
     className: "w-16 text-right rounded-lg border border-stone-300 px-2 py-1 text-sm"
   }), " ชม.")))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-baseline justify-between mb-1 px-1"
+    className: "flex items-center justify-between mb-1 px-1"
   }, /*#__PURE__*/React.createElement("h2", {
     className: "font-bold text-stone-900"
-  }, "ตารางวันนี้"), overflow.length > 0 && /*#__PURE__*/React.createElement("span", {
+  }, "ตาราง"), overflow.length > 0 && /*#__PURE__*/React.createElement("span", {
     className: "text-xs text-red-500"
-  }, "ไม่พอเวลา ", overflow.length, " งาน")), /*#__PURE__*/React.createElement("p", {
+  }, "ไม่พอเวลา ", overflow.length, " งาน")), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-2 rounded-xl bg-stone-100 p-1"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setDayOffset(dayOffset - 1),
+    className: "px-3 py-1 text-stone-500 text-lg leading-none"
+  }, "‹"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setDayOffset(0),
+    className: "text-sm font-semibold " + (isToday ? "text-stone-900" : "text-stone-500")
+  }, isToday ? "วันนี้ · " : "", THAI_DOW_FULL[viewDate.getDay()], " ", fmtThaiDate(viewIso)), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setDayOffset(dayOffset + 1),
+    className: "px-3 py-1 text-stone-500 text-lg leading-none"
+  }, "›")), /*#__PURE__*/React.createElement("p", {
     className: "text-xs text-stone-400 mb-2 px-1"
-  }, "แตะ ✏️ ตั้งเวลา/ระยะเวลา · งานที่ไม่ล็อกเวลาเลื่อน ▲▼ ได้ · ช่องว่างพิมพ์เองได้"), /*#__PURE__*/React.createElement("div", {
+  }, "แตะ ✏️ ตั้งเวลา/ระยะเวลา · เลื่อน ‹ › ดูวันอื่น · ", isToday ? "งานค้างจัดลงให้อัตโนมัติ" : "วันอื่นใส่กิจกรรม/โน้ตเองได้"), /*#__PURE__*/React.createElement("div", {
     className: "rounded-2xl border border-stone-200 bg-white overflow-hidden divide-y divide-stone-100"
   }, Array.from({
     length: SLOTS
@@ -1134,7 +1192,7 @@ function Overview({
   }, DURS.map(d => /*#__PURE__*/React.createElement("button", {
     key: d.m,
     onClick: () => setDur(editing.id, d.m),
-    className: "flex-1 rounded-lg border py-2 text-sm " + ((durMap[editing.id] || editing.dur) === d.m ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")
+    className: "flex-1 rounded-lg border py-2 text-sm " + ((vdurMap[editing.id] || editing.dur) === d.m ? "bg-stone-900 text-white border-transparent" : "border-stone-200 text-stone-500")
   }, d.l)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
     className: "text-xs text-stone-500 mb-1.5"
   }, "เวลาเริ่ม (ไม่ระบุก็ได้ · ระบุแล้วจะล็อกเวลานั้น)"), /*#__PURE__*/React.createElement("div", {
@@ -3568,7 +3626,7 @@ function Field({
     className: "block text-xs font-medium text-stone-500 mb-1.5"
   }, label), children);
 }
-ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(__ErrB, null, React.createElement(App)));
 }catch(e){__err((e&&e.stack)||(e&&e.message)||e);}}
 </script>
 </body></html>
