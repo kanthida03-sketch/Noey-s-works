@@ -576,6 +576,9 @@ function App() {
     if (!t.deadline) return;
     const d = new Date(t.deadline + "T00:00:00");
     d.setDate(d.getDate() + 1);
+    if (t.job === 1) {
+      while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+    }
     patch(t, {
       deadline: isoOf(d),
       pushes: (t.pushes || 0) + 1
@@ -957,13 +960,17 @@ function Overview({
 
   // สร้างรายการของวันที่ดูอยู่ — กิจกรรม/คอร์สมาก่อน (ได้ช่องก่อน ไม่โดนงานทับ)
   const items = [];
-  (plans || []).filter(p => p.date === viewIso && !p.done && !(p.allDay || p.period === "allday")).forEach(p => items.push({
-    id: p.id,
-    name: p.name + (p.alongside ? " (แทรกได้)" : ""),
-    group: "side",
-    color: "act",
-    dur: vdurMap[p.id] || (Number(p.hours) || 0) * 60 + (Number(p.minutes) || 0) || 30
-  }));
+  const alongItems = [];
+  (plans || []).filter(p => p.date === viewIso && !p.done && !(p.allDay || p.period === "allday")).forEach(p => {
+    const it = {
+      id: p.id,
+      name: p.name,
+      group: "side",
+      color: "act",
+      dur: vdurMap[p.id] || (Number(p.hours) || 0) * 60 + (Number(p.minutes) || 0) || 30
+    };
+    if (p.alongside) alongItems.push(it);else items.push(it);
+  });
   (courses || []).forEach(c => {
     const sc = courseSchedule(c, blockedSet);
     const k = sc.indexOf(viewIso);
@@ -975,6 +982,14 @@ function Overview({
       dur: vdurMap["course_" + c.id] || Number(c.minutes) || 30
     });
   });
+  (plans || []).filter(p => p.date === viewIso && !p.done && (p.allDay || p.period === "allday")).forEach(p => items.push({
+    id: p.id,
+    name: "🗓 " + p.name + " (ทั้งวัน)",
+    group: "side",
+    color: "act",
+    dur: 30,
+    fixedSlot: 0
+  }));
   // งาน Ignite/Freelance ที่กำลังทำ → โผล่ทุกวันจนถึงวันส่ง (ถ้ากดเสร็จแล้ว วันถัดไปหาย)
   const untilDeadline = t => {
     const du = daysUntil(t.deadline);
@@ -1010,7 +1025,7 @@ function Overview({
   items.forEach(x => {
     if (!order.includes(x.id)) order.push(x.id);
   });
-  const byId = id => items.find(x => x.id === id);
+  const byId = id => items.find(x => x.id === id) || alongItems.find(x => x.id === id);
 
   // แพ็คลงช่อง: งานที่ระบุเวลา (ล็อก) ก่อน แล้วค่อยจัดอัตโนมัติในช่วงว่าง
   const occ = {};
@@ -1028,8 +1043,9 @@ function Overview({
     };
     return true;
   };
+  const fixedOf = it => it.fixedSlot != null ? it.fixedSlot : timeToSlot(startAt[it.id]);
   order.map(byId).filter(Boolean).forEach(it => {
-    const s = timeToSlot(startAt[it.id]);
+    const s = fixedOf(it);
     if (s != null) {
       if (!place(it, s)) overflow.push(it.id);
     }
@@ -1064,7 +1080,7 @@ function Overview({
     });
     return rem;
   };
-  const grpItems = grp => order.map(byId).filter(it => it && it.group === grp && timeToSlot(startAt[it.id]) == null);
+  const grpItems = grp => order.map(byId).filter(it => it && it.group === grp && fixedOf(it) == null);
   // side: ลงช่วงหลักก่อน (6-8,เที่ยง,20-21:30) · ล้นแล้วไหลไปช่องว่างอื่น (ตี5-6,8-9,เย็น) จะได้ไม่หาย
   let remSide = packList(grpItems("side"), i => slotZone(i) === "side");
   remSide = packList(remSide, i => slotZone(i) === "free");
@@ -1073,6 +1089,59 @@ function Overview({
   let remIg = packList(grpItems("ignite"), i => slotZone(i) === "ignite");
   remIg = packList(remIg, i => slotZone(i) === "free");
   remIg.forEach(it => overflow.push(it.id));
+
+  // แทร็กแยกสำหรับกิจกรรม "แทรกได้" (ทำควบคู่กับงาน — โชว์แบ่งครึ่งเวลาชนกับงาน)
+  const occAlong = {};
+  const placeA = (it, s) => {
+    const need = Math.max(1, Math.round(it.dur / 30));
+    for (let k = 0; k < need; k++) {
+      if (s + k >= SLOTS || occAlong[s + k]) return false;
+    }
+    for (let k = 0; k < need; k++) occAlong[s + k] = {
+      id: it.id,
+      start: k === 0,
+      span: need,
+      color: it.color
+    };
+    return true;
+  };
+  const packA = (list, canUse) => {
+    let i = 0;
+    const rem = [];
+    list.forEach(it => {
+      const need = Math.max(1, Math.round(it.dur / 30));
+      let placed = false;
+      for (let s = i; s + need <= SLOTS; s++) {
+        let ok = true;
+        for (let k = 0; k < need; k++) {
+          if (!canUse(s + k) || occAlong[s + k]) {
+            ok = false;
+            break;
+          }
+        }
+        if (ok) {
+          for (let k = 0; k < need; k++) occAlong[s + k] = {
+            id: it.id,
+            start: k === 0,
+            span: need,
+            color: it.color
+          };
+          i = s + need;
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) rem.push(it);
+    });
+    return rem;
+  };
+  alongItems.forEach(it => {
+    const s = fixedOf(it);
+    if (s != null) placeA(it, s);
+  });
+  let remA = packA(alongItems.filter(it => fixedOf(it) == null), i => slotZone(i) === "side");
+  remA = packA(remA, i => slotZone(i) === "free");
+  remA.forEach(it => overflow.push(it.id));
   const updateDay = patch => setPlanner(prev => ({
     ...prev,
     [viewIso]: {
@@ -1145,10 +1214,7 @@ function Overview({
   const editing = editItem ? byId(editItem) : null;
   return /*#__PURE__*/React.createElement("div", {
     className: "space-y-5"
-  }, (plans || []).filter(p => p.date === viewIso && !p.done && (p.allDay || p.period === "allday")).map(p => /*#__PURE__*/React.createElement("div", {
-    key: p.id,
-    className: "rounded-3xl bg-amber-100 text-amber-700 px-4 py-2.5 text-sm font-medium"
-  }, "🗓 All day · ", p.name)), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "flex gap-3 overflow-x-auto pb-1",
     style: {
       scrollSnapType: "x mandatory",
@@ -1209,51 +1275,62 @@ function Overview({
     const zone = slotZone(i);
     const comp = isCompanyVisual(i);
     const o = occ[i];
-    const it = o && byId(o.id);
-    const fixed = o && timeToSlot(startAt[o.id]) != null;
-    const bg = o ? ITEMBG[o.color] || "" : comp ? "bg-indigo-50" : zone === "side" ? "bg-amber-50/50" : "";
+    const oa = occAlong[i];
+    const leftBg = o ? ITEMBG[o.color] || "" : comp ? "bg-indigo-50" : zone === "side" ? "bg-amber-50/50" : "";
+    const cellInner = (c, isAlong) => {
+      const it = byId(c.id);
+      const fx = timeToSlot(startAt[c.id]) != null || it && it.fixedSlot != null;
+      if (!c.start) return /*#__PURE__*/React.createElement("div", {
+        className: "px-2.5 py-2 text-xs text-stone-300"
+      }, "↳");
+      return /*#__PURE__*/React.createElement("div", {
+        className: "px-2.5 py-2 min-w-0 flex items-center gap-1.5"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "w-2 h-2 rounded-full shrink-0 " + ITEMDOT[c.color]
+      }), /*#__PURE__*/React.createElement("span", {
+        className: "text-sm font-medium text-stone-800 truncate flex-1"
+      }, it ? it.name : "", isAlong && /*#__PURE__*/React.createElement("span", {
+        className: "text-[10px] text-amber-600 font-normal"
+      }, " ·แทรก")), /*#__PURE__*/React.createElement("span", {
+        className: "text-[10px] text-stone-400 shrink-0"
+      }, c.span * 30, "น"), !isAlong && !fx && /*#__PURE__*/React.createElement("div", {
+        className: "flex flex-col shrink-0 -my-1"
+      }, /*#__PURE__*/React.createElement("button", {
+        onClick: () => moveInGroup(c.id, -1),
+        className: "text-stone-400 text-[10px] leading-none"
+      }, "▲"), /*#__PURE__*/React.createElement("button", {
+        onClick: () => moveInGroup(c.id, 1),
+        className: "text-stone-400 text-[10px] leading-none"
+      }, "▼")), !isAlong && fx && /*#__PURE__*/React.createElement("span", {
+        className: "text-[10px] text-stone-400 shrink-0"
+      }, "🔒"), /*#__PURE__*/React.createElement("button", {
+        onClick: () => setEditItem(c.id),
+        className: "text-stone-400 shrink-0"
+      }, /*#__PURE__*/React.createElement(Pencil, {
+        size: 13
+      })));
+    };
     return /*#__PURE__*/React.createElement("div", {
       key: i,
-      className: "flex items-stretch " + bg
+      className: "flex items-stretch"
     }, /*#__PURE__*/React.createElement("div", {
       className: "w-14 shrink-0 px-2 py-2 text-[11px] text-stone-400 border-r border-stone-100 flex items-center"
-    }, slotLabel(i)), o ? o.start ? /*#__PURE__*/React.createElement("div", {
-      className: "flex-1 px-3 py-2 min-w-0 flex items-center gap-2"
-    }, /*#__PURE__*/React.createElement("span", {
-      className: "w-2 h-2 rounded-full shrink-0 " + ITEMDOT[o.color]
-    }), /*#__PURE__*/React.createElement("span", {
-      className: "text-sm font-medium text-stone-800 truncate flex-1"
-    }, it ? it.name : ""), /*#__PURE__*/React.createElement("span", {
-      className: "text-[11px] text-stone-400 shrink-0"
-    }, o.span * 30, "น"), fixed ? /*#__PURE__*/React.createElement("span", {
-      className: "text-[10px] text-stone-400 shrink-0"
-    }, "🔒") : /*#__PURE__*/React.createElement("div", {
-      className: "flex flex-col shrink-0 -my-1"
-    }, /*#__PURE__*/React.createElement("button", {
-      onClick: () => moveInGroup(o.id, -1),
-      className: "text-stone-400 text-[10px] leading-none"
-    }, "▲"), /*#__PURE__*/React.createElement("button", {
-      onClick: () => moveInGroup(o.id, 1),
-      className: "text-stone-400 text-[10px] leading-none"
-    }, "▼")), /*#__PURE__*/React.createElement("button", {
-      onClick: () => setEditItem(o.id),
-      className: "text-stone-400 shrink-0"
-    }, /*#__PURE__*/React.createElement(Pencil, {
-      size: 14
-    }))) : /*#__PURE__*/React.createElement("div", {
-      className: "flex-1 px-3 py-2 text-xs flex items-center"
-    }, /*#__PURE__*/React.createElement("span", {
-      className: "text-stone-300"
-    }, "↳")) : comp ? /*#__PURE__*/React.createElement("div", {
-      className: "flex-1 px-3 py-2 text-xs text-indigo-500 flex items-center gap-1.5"
+    }, slotLabel(i)), /*#__PURE__*/React.createElement("div", {
+      className: "flex-1 flex min-w-0"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "min-w-0 " + (oa ? "w-1/2 border-r border-white " : "flex-1 ") + leftBg
+    }, o ? cellInner(o, false) : comp ? /*#__PURE__*/React.createElement("div", {
+      className: "px-3 py-2 text-xs text-indigo-500 flex items-center gap-1.5"
     }, slotHour(i) === 9 && i % 2 === 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Briefcase, {
       size: 12
     }), " งานบริษัท (เข้างาน)") : "") : /*#__PURE__*/React.createElement("input", {
       value: notes[i] || "",
       onChange: e => setNote(i, e.target.value),
       placeholder: zone === "side" ? "ทำฟรีแลนซ์/ร้าน…" : "…",
-      className: "flex-1 px-3 py-2 text-sm bg-transparent focus:outline-none focus:bg-stone-50 placeholder-stone-300"
-    }));
+      className: "w-full px-3 py-2 text-sm bg-transparent focus:outline-none placeholder-stone-300"
+    })), oa && /*#__PURE__*/React.createElement("div", {
+      className: "w-1/2 min-w-0 " + (ITEMBG[oa.color] || "")
+    }, cellInner(oa, true))));
   }))), editing && /*#__PURE__*/React.createElement("div", {
     className: "fixed inset-0 z-40 flex items-center justify-center p-4"
   }, /*#__PURE__*/React.createElement("div", {
@@ -1478,17 +1555,12 @@ function PerfModal({
   const cutoff = Date.now() - days * 86400000;
   const inPeriod = ts => ts && ts >= cutoff;
   const done = tasks.filter(t => (t.status === "done" || t.stage === "shipped") && inPeriod(t.updatedAt));
-  const onTime = done.filter(t => {
-    if (!t.deadline) return true;
-    const dl = new Date(t.deadline + "T23:59:59").getTime();
-    return (t.updatedAt || 0) <= dl;
-  });
-  const pct = done.length ? Math.round(onTime.length / done.length * 100) : 0;
-  const pushes = tasks.filter(t => inPeriod(t.updatedAt) || !(t.status === "done" || t.status === "cancel" || t.stage === "shipped")).reduce((s, t) => s + (t.pushes || 0), 0);
-  const pushedTasks = tasks.filter(t => (t.pushes || 0) > 0).length;
+  const late = done.filter(t => (t.pushes || 0) > 0).length;
+  const onTime = done.length - late;
+  const pct = done.length ? Math.round(onTime / done.length * 100) : 0;
   const seg = (k, l) => /*#__PURE__*/React.createElement("button", {
     onClick: () => setMode(k),
-    className: "px-4 py-1.5 rounded-full text-sm font-bold " + (mode === k ? "bg-violet-500 text-white" : "bg-stone-100 text-stone-500")
+    className: "px-4 py-1.5 rounded-full text-sm font-bold " + (mode === k ? "bg-amber-500 text-white" : "bg-stone-100 text-stone-500")
   }, l);
   return /*#__PURE__*/React.createElement("div", {
     className: "fixed inset-0 z-40 flex items-center justify-center p-4"
@@ -1512,28 +1584,32 @@ function PerfModal({
   }))), /*#__PURE__*/React.createElement("div", {
     className: "flex gap-2"
   }, seg("W", "W"), seg("M", "M")), /*#__PURE__*/React.createElement("div", {
-    className: "rounded-3xl bg-emerald-50 p-4 text-center"
+    className: "text-center"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-4xl font-bold text-emerald-600 leading-none"
   }, pct, "%"), /*#__PURE__*/React.createElement("div", {
     className: "text-xs text-stone-500 mt-1.5"
-  }, "ส่งงานทันเวลา · ", onTime.length, "/", done.length, " งาน")), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-2 gap-3"
+  }, "ส่งงานตรงเวลา")), /*#__PURE__*/React.createElement("div", {
+    className: "flex h-4 rounded-full overflow-hidden bg-stone-100"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "rounded-3xl bg-orange-50 p-4 text-center"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "text-2xl font-bold text-orange-500"
-  }, pushes), /*#__PURE__*/React.createElement("div", {
-    className: "text-[11px] text-stone-500 mt-1"
-  }, "ครั้งที่เลื่อนส่ง")), /*#__PURE__*/React.createElement("div", {
-    className: "rounded-3xl bg-sky-50 p-4 text-center"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "text-2xl font-bold text-sky-500"
-  }, pushedTasks), /*#__PURE__*/React.createElement("div", {
-    className: "text-[11px] text-stone-500 mt-1"
-  }, "งานที่เคยเลื่อน"))), /*#__PURE__*/React.createElement("button", {
+    className: "bg-emerald-500",
+    style: {
+      width: (done.length ? onTime / done.length * 100 : 0) + "%"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "bg-orange-400",
+    style: {
+      width: (done.length ? late / done.length * 100 : 0) + "%"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex justify-between text-xs"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-emerald-600 font-medium"
+  }, "● ตรงเวลา ", onTime), /*#__PURE__*/React.createElement("span", {
+    className: "text-orange-500 font-medium"
+  }, "เลื่อนส่ง ", late, " ●")), /*#__PURE__*/React.createElement("button", {
     onClick: () => exportPerf(tasks, plans, courses),
-    className: "w-full rounded-2xl bg-violet-500 text-white py-2.5 text-sm font-medium flex items-center justify-center gap-1.5"
+    className: "w-full rounded-2xl bg-amber-500 text-white py-2.5 text-sm font-medium flex items-center justify-center gap-1.5"
   }, /*#__PURE__*/React.createElement(Download, {
     size: 16
   }), " โหลด Excel (สรุปทุกอย่าง)")));
