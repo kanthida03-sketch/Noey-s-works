@@ -3,6 +3,13 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
 <title>Work Hub</title>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="Work Hub"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="theme-color" content="#8b5cf6"/>
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiB2aWV3Qm94PSIwIDAgNTEyIDUxMiI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJnIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjOGI1Y2Y2Ii8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMzhiZGY4Ii8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiIHJ4PSIxMTIiIGZpbGw9InVybCgjZykiLz48ZyBmaWxsPSIjZmZmZmZmIj48Y2lyY2xlIGN4PSIyNTYiIGN5PSIxNTAiIHI9IjI2Ii8+PHJlY3QgeD0iMTUwIiB5PSIyMTUiIHdpZHRoPSIyMTIiIGhlaWdodD0iMzQiIHJ4PSIxNyIvPjxyZWN0IHg9IjE1MCIgeT0iMjg1IiB3aWR0aD0iMTUwIiBoZWlnaHQ9IjM0IiByeD0iMTciIG9wYWNpdHk9IjAuODUiLz48cmVjdCB4PSIxNTAiIHk9IjM1NSIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIzNCIgcng9IjE3IiBvcGFjaXR5PSIwLjciLz48L2c+PC9zdmc+"/>
+<link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoiV29yayBIdWIiLCJzaG9ydF9uYW1lIjoiV29yayBIdWIiLCJzdGFydF91cmwiOiIuIiwic2NvcGUiOiIuIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJvcmllbnRhdGlvbiI6InBvcnRyYWl0IiwiYmFja2dyb3VuZF9jb2xvciI6IiNmZmZmZmYiLCJ0aGVtZV9jb2xvciI6IiM4YjVjZjYiLCJpY29ucyI6W3sic3JjIjoiZGF0YTppbWFnZS9zdmcreG1sO2Jhc2U2NCxQSE4yWnlCNGJXeHVjejBpYUhSMGNEb3ZMM2QzZHk1M015NXZjbWN2TWpBd01DOXpkbWNpSUhkcFpIUm9QU0kxTVRJaUlHaGxhV2RvZEQwaU5URXlJaUIyYVdWM1FtOTRQU0l3SURBZ05URXlJRFV4TWlJK1BHUmxabk0rUEd4cGJtVmhja2R5WVdScFpXNTBJR2xrUFNKbklpQjRNVDBpTUNJZ2VURTlJakFpSUhneVBTSXhJaUI1TWowaU1TSStQSE4wYjNBZ2IyWm1jMlYwUFNJd0lpQnpkRzl3TFdOdmJHOXlQU0lqT0dJMVkyWTJJaTgrUEhOMGIzQWdiMlptYzJWMFBTSXhJaUJ6ZEc5d0xXTnZiRzl5UFNJak16aGlaR1k0SWk4K1BDOXNhVzVsWVhKSGNtRmthV1Z1ZEQ0OEwyUmxabk0rUEhKbFkzUWdkMmxrZEdnOUlqVXhNaUlnYUdWcFoyaDBQU0kxTVRJaUlISjRQU0l4TVRJaUlHWnBiR3c5SW5WeWJDZ2paeWtpTHo0OFp5Qm1hV3hzUFNJalptWm1abVptSWo0OFkybHlZMnhsSUdONFBTSXlOVFlpSUdONVBTSXhOVEFpSUhJOUlqSTJJaTgrUEhKbFkzUWdlRDBpTVRVd0lpQjVQU0l5TVRVaUlIZHBaSFJvUFNJeU1USWlJR2hsYVdkb2REMGlNelFpSUhKNFBTSXhOeUl2UGp4eVpXTjBJSGc5SWpFMU1DSWdlVDBpTWpnMUlpQjNhV1IwYUQwaU1UVXdJaUJvWldsbmFIUTlJak0wSWlCeWVEMGlNVGNpSUc5d1lXTnBkSGs5SWpBdU9EVWlMejQ4Y21WamRDQjRQU0l4TlRBaUlIazlJak0xTlNJZ2QybGtkR2c5SWpFd01DSWdhR1ZwWjJoMFBTSXpOQ0lnY25nOUlqRTNJaUJ2Y0dGamFYUjVQU0l3TGpjaUx6NDhMMmMrUEM5emRtYysiLCJzaXplcyI6IjUxMng1MTIiLCJ0eXBlIjoiaW1hZ2Uvc3ZnK3htbCIsInB1cnBvc2UiOiJhbnkgbWFza2FibGUifSx7InNyYyI6ImRhdGE6aW1hZ2Uvc3ZnK3htbDtiYXNlNjQsUEhOMlp5QjRiV3h1Y3owaWFIUjBjRG92TDNkM2R5NTNNeTV2Y21jdk1qQXdNQzl6ZG1jaUlIZHBaSFJvUFNJMU1USWlJR2hsYVdkb2REMGlOVEV5SWlCMmFXVjNRbTk0UFNJd0lEQWdOVEV5SURVeE1pSStQR1JsWm5NK1BHeHBibVZoY2tkeVlXUnBaVzUwSUdsa1BTSm5JaUI0TVQwaU1DSWdlVEU5SWpBaUlIZ3lQU0l4SWlCNU1qMGlNU0krUEhOMGIzQWdiMlptYzJWMFBTSXdJaUJ6ZEc5d0xXTnZiRzl5UFNJak9HSTFZMlkySWk4K1BITjBiM0FnYjJabWMyVjBQU0l4SWlCemRHOXdMV052Ykc5eVBTSWpNemhpWkdZNElpOCtQQzlzYVc1bFlYSkhjbUZrYVdWdWRENDhMMlJsWm5NK1BISmxZM1FnZDJsa2RHZzlJalV4TWlJZ2FHVnBaMmgwUFNJMU1USWlJSEo0UFNJeE1USWlJR1pwYkd3OUluVnliQ2dqWnlraUx6NDhaeUJtYVd4c1BTSWpabVptWm1abUlqNDhZMmx5WTJ4bElHTjRQU0l5TlRZaUlHTjVQU0l4TlRBaUlISTlJakkySWk4K1BISmxZM1FnZUQwaU1UVXdJaUI1UFNJeU1UVWlJSGRwWkhSb1BTSXlNVElpSUdobGFXZG9kRDBpTXpRaUlISjRQU0l4TnlJdlBqeHlaV04wSUhnOUlqRTFNQ0lnZVQwaU1qZzFJaUIzYVdSMGFEMGlNVFV3SWlCb1pXbG5hSFE5SWpNMElpQnllRDBpTVRjaUlHOXdZV05wZEhrOUlqQXVPRFVpTHo0OGNtVmpkQ0I0UFNJeE5UQWlJSGs5SWpNMU5TSWdkMmxrZEdnOUlqRXdNQ0lnYUdWcFoyaDBQU0l6TkNJZ2NuZzlJakUzSWlCdmNHRmphWFI1UFNJd0xqY2lMejQ4TDJjK1BDOXpkbWMrIiwic2l6ZXMiOiIxOTJ4MTkyIiwidHlwZSI6ImltYWdlL3N2Zyt4bWwiLCJwdXJwb3NlIjoiYW55IG1hc2thYmxlIn1dfQ=="/>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
@@ -3110,7 +3117,16 @@ function PersonalPage({
     className: "text-xs text-stone-500"
   }, "ไม่นับรวมในเวลารับงาน"))), /*#__PURE__*/React.createElement("div", {
     className: "flex gap-2 pt-1"
-  }, /*#__PURE__*/React.createElement("button", {
+  }, pForm.id && /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setPlans(prev => prev.filter(x => x.id !== pForm.id));
+      setPForm(emptyPlan);
+      setShowPlan(false);
+    },
+    className: "p-2.5 rounded-xl text-red-500 hover:bg-red-50"
+  }, /*#__PURE__*/React.createElement(Trash2, {
+    size: 20
+  })), /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowPlan(false),
     className: "flex-1 rounded-xl border border-stone-100 py-2.5 text-sm text-stone-500"
   }, "ยกเลิก"), /*#__PURE__*/React.createElement("button", {
